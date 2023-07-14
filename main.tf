@@ -1,5 +1,12 @@
 terraform {
   backend "remote" {}
+
+  required_providers {
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = ">= 1.7.0"
+    }
+  }
 }
 
 provider "aws" {
@@ -36,16 +43,42 @@ resource "kubernetes_namespace" "monitoring" {
   }
 }
 
+# Prometheus Operator and Grafana
 
-# ln -s /Users/jrepnak/test/kubernetes/src/kube-prometheus/manifests /manifests
-data "kubectl_path_documents" "monitoring-setup" {
-    pattern = "./manifests/setup/*.yaml"
+provider "kubectl" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  token                  = data.aws_eks_cluster_auth.eks_cluster.token
+  load_config_file       = false
 }
 
+data "kubectl_path_documents" "monitoring-setup" {
+  pattern = "./manifests/setup/*.yaml"
+}
 
-# kubectl apply --server-side -f manifests/setup
-# kubectl wait \
-# 	--for condition=Established \
-# 	--all CustomResourceDefinition \
-# 	--namespace=monitoring
-# kubectl apply -f manifests/
+data "kubectl_path_documents" "monitoring" {
+  pattern = "./manifests/*.yaml"
+}
+
+resource "kubectl_manifest" "monitoring-setup" {
+  for_each          = toset(data.kubectl_path_documents.monitoring-setup.documents)
+  yaml_body         = each.value
+  server_side_apply = true
+  wait              = true
+  depends_on = [
+    kubernetes_namespace.monitoring,
+  ]
+}
+
+resource "kubectl_manifest" "monitoring" {
+  for_each          = data.kubectl_path_documents.monitoring.manifests
+  yaml_body         = each.value
+  server_side_apply = true
+  wait              = false
+  wait_for_rollout  = false
+  validate_schema   = false
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    kubectl_manifest.monitoring-setup,
+  ]
+}
