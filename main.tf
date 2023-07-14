@@ -118,3 +118,42 @@ resource "helm_release" "promtail" {
   ]
 
 }
+
+# Vault ServiceMonitor
+
+resource "kubernetes_manifest" "servicemonitor_monitoring_vault" {
+  manifest = {
+    "apiVersion" = "monitoring.coreos.com/v1"
+    "kind"       = "ServiceMonitor"
+    "metadata" = {
+      "labels" = {
+        "monitoring" = "prometheus"
+      }
+      "name"      = "vault"
+      "namespace" = "monitoring"
+    }
+    "spec" = {
+      "endpoints" = [
+        {
+          "interval" = "10s"
+          "path"     = "/v1/sys/metrics"
+          "port"     = "https"
+          "scheme"   = "https"
+          "tlsConfig" = {
+            "insecureSkipVerify" = true
+          }
+        },
+      ]
+      "namespaceSelector" = {
+        "matchNames" = [
+          "vault",
+        ]
+      }
+      "selector" = {
+        "matchLabels" = {
+          "app.kubernetes.io/name" = "vault"
+        }
+      }
+    }
+  }
+}
