@@ -103,6 +103,10 @@ resource "helm_release" "loki" {
     file("${path.module}/charts/loki.yaml")
   ]
 
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    kubectl_manifest.monitoring-setup,
+  ]
 }
 
 # Promtail
@@ -117,43 +121,8 @@ resource "helm_release" "promtail" {
     file("${path.module}/charts/promtail.yaml")
   ]
 
-}
-
-# Vault ServiceMonitor
-
-resource "kubernetes_manifest" "servicemonitor_monitoring_vault" {
-  manifest = {
-    "apiVersion" = "monitoring.coreos.com/v1"
-    "kind"       = "ServiceMonitor"
-    "metadata" = {
-      "labels" = {
-        "monitoring" = "prometheus"
-      }
-      "name"      = "vault"
-      "namespace" = "monitoring"
-    }
-    "spec" = {
-      "endpoints" = [
-        {
-          "interval" = "10s"
-          "path"     = "/v1/sys/metrics"
-          "port"     = "https"
-          "scheme"   = "https"
-          "tlsConfig" = {
-            "insecureSkipVerify" = true
-          }
-        },
-      ]
-      "namespaceSelector" = {
-        "matchNames" = [
-          "vault",
-        ]
-      }
-      "selector" = {
-        "matchLabels" = {
-          "app.kubernetes.io/name" = "vault"
-        }
-      }
-    }
-  }
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    kubectl_manifest.monitoring-setup,
+  ]
 }
