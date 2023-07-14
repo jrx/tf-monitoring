@@ -37,6 +37,14 @@ provider "kubernetes" {
   token                  = data.aws_eks_cluster_auth.eks_cluster.token
 }
 
+provider "helm" {
+  kubernetes {
+    host                   = data.aws_eks_cluster.cluster.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+    token                  = data.aws_eks_cluster_auth.eks_cluster.token
+  }
+}
+
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = var.monitoring-namespace
@@ -81,4 +89,32 @@ resource "kubectl_manifest" "monitoring" {
     kubernetes_namespace.monitoring,
     kubectl_manifest.monitoring-setup,
   ]
+}
+
+# promtail
+
+resource "helm_release" "loki" {
+  name       = "loki"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "loki"
+  namespace  = kubernetes_namespace.monitoring.id
+
+  values = [
+    file("${path.module}/charts/loki.yaml")
+  ]
+
+}
+
+# Promtail
+
+resource "helm_release" "promtail" {
+  name       = "promtail"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "promtail"
+  namespace  = kubernetes_namespace.monitoring.id
+
+  values = [
+    file("${path.module}/charts/promtail.yaml")
+  ]
+
 }
