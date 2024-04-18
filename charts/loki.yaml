@@ -1,7 +1,24 @@
+# https://github.com/grafana/loki/issues/12610
+deploymentMode: SingleBinary
 loki:
   commonConfig:
     replication_factor: 1
   storage:
     type: 'filesystem'
+  schemaConfig:
+    configs:
+      - from: 2024-04-01
+        object_store: filesystem
+        store: tsdb
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+write:
+  replicas: 0
+read:
+  replicas: 0
+backend:
+  replicas: 0
 singleBinary:
   replicas: 1
