@@ -17,6 +17,39 @@ Into a single Kubernetes namespace (default: `monitoring`):
 Grafana comes pre-configured with both Prometheus and Loki as datasources.
 Alloy and Grafana both authenticate to Loki with tenant `1`.
 
+### What Prometheus scrapes
+
+In addition to everything `kube-prometheus-stack` discovers by default
+(API server, kubelet, cAdvisor, kube-state-metrics, node-exporter, the
+operator's own ServiceMonitors), this module declares two extra
+`ServiceMonitor` resources in the kube-prometheus-stack values file:
+
+| ServiceMonitor | Namespace | Selector | Port / Path |
+|---|---|---|---|
+| `n8n` | `n8n` | `app.kubernetes.io/name=n8n, instance=n8n` (matches `n8n-main` **and** `n8n-webhook-processor`) | `http` (5678) `/metrics` |
+| `keda` | `keda` | `app=keda-operator-metrics-apiserver` | `metrics` (8080) `/metrics` |
+
+**`n8n` scrape is gated on an upstream change** — the n8n chart does not
+set `N8N_METRICS=true` by default, so `/metrics` returns HTTP 404 until
+the `n8n` Terraform Cloud workspace's Helm values include:
+
+```yaml
+main:
+  extraEnv:
+    N8N_METRICS: "true"
+webhookProcessor:
+  extraEnv:
+    N8N_METRICS: "true"
+```
+
+Until then the scrape config is correct but produces zero samples.
+
+**`n8n-worker` is intentionally not scraped** — the chart's worker
+Deployment exposes no ports and has no Service, so there is no
+reachable endpoint. Adding worker metrics requires exposing a port
+in the n8n chart's worker template plus a (headless) Service or
+`PodMonitor`, both upstream changes.
+
 ## Prerequisites
 
 - Terraform `>= 1.8.0`
