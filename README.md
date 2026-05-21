@@ -70,12 +70,15 @@ Until then the scrape config is correct but produces zero samples.
 ├── providers.tf     # aws / kubernetes / helm providers (exec-auth)
 ├── data.tf          # remote_state + aws_eks_cluster lookup
 ├── main.tf          # namespace + 3 helm_releases
+├── dashboards.tf    # ConfigMaps for every ./dashboards/*.json
 ├── variables.tf     # inputs (region, namespace, chart versions)
 ├── outputs.tf       # namespace, cluster, Grafana service/secret names
 ├── charts/
 │   ├── kube-prometheus-stack.yaml
 │   ├── loki.yaml
 │   └── alloy.yaml
+├── dashboards/
+│   └── n8n-system-health.json
 └── backend.hcl      # TFC remote backend config
 ```
 
@@ -162,6 +165,43 @@ kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093
 ```
 
 Open <http://localhost:9093>.
+
+## Grafana dashboards
+
+Dashboards under `./dashboards/*.json` are auto-imported into Grafana.
+Each file becomes a `ConfigMap` named `grafana-dashboard-<basename>` in
+the `monitoring` namespace, labelled `grafana_dashboard=1`. The
+k8s-sidecar bundled with `kube-prometheus-stack`'s Grafana watches for
+ConfigMaps with that label and imports their JSON via Grafana's HTTP
+API within a few seconds.
+
+**To add a dashboard**
+
+1. Drop a JSON file in `./dashboards/`. Filename without `.json`
+   becomes the ConfigMap suffix; the dashboard's own `title` shows up
+   in Grafana.
+2. If the JSON was exported from grafana.com (and contains
+   `"__inputs"` referencing `DS_PROMETHEUS`), replace **all** occurrences
+   of `${DS_PROMETHEUS}` with `prometheus` (the datasource UID this
+   stack uses by default). Otherwise every panel will render the error
+   *"Datasource ${DS_PROMETHEUS} not found"*.
+3. `terraform apply` — the sidecar will pick up the new ConfigMap and
+   make the dashboard visible in Grafana under *Dashboards → General*
+   within ~30s.
+
+**To modify a dashboard**
+
+Edit the JSON file directly and `terraform apply`. The sidecar
+detects the ConfigMap update and re-imports. Round-tripping changes
+from Grafana's UI back to the file is **not** automatic — use
+Grafana's *Dashboard settings → JSON Model* to copy the new JSON back
+into the file.
+
+**Shipped dashboards**
+
+| File | Source | What it shows |
+|---|---|---|
+| `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), revision 1, `${DS_PROMETHEUS}` substituted | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
 
 ## Operational notes
 
