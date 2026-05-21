@@ -125,3 +125,32 @@ All Helm chart versions are pinned via variables so applies are
 reproducible. Bump deliberately after reviewing each chart's CHANGELOG —
 in particular, `kube-prometheus-stack` major bumps occasionally rename
 selectors or change CRD schemas.
+
+## Cleanup
+
+`terraform destroy` removes the namespace and all three Helm releases
+cleanly. **However, Helm intentionally does not delete CRDs on uninstall**
+(to prevent data loss across upgrades), so the following cluster-scoped
+CRDs survive a destroy and need to be removed manually if you want a
+pristine cluster:
+
+```sh
+kubectl delete crd \
+  alertmanagerconfigs.monitoring.coreos.com \
+  alertmanagers.monitoring.coreos.com \
+  podlogs.monitoring.grafana.com \
+  podmonitors.monitoring.coreos.com \
+  probes.monitoring.coreos.com \
+  prometheusagents.monitoring.coreos.com \
+  prometheuses.monitoring.coreos.com \
+  prometheusrules.monitoring.coreos.com \
+  scrapeconfigs.monitoring.coreos.com \
+  servicemonitors.monitoring.coreos.com \
+  thanosrulers.monitoring.coreos.com
+```
+
+Leaving these CRDs in place is harmless on its own (no operator is
+running to act on them), but a subsequent `terraform apply` will
+**reuse** the existing CRDs rather than re-install them — which can be a
+problem if `kube_prometheus_stack_chart_version` has moved across a CRD
+schema break. When in doubt, purge before re-applying.
