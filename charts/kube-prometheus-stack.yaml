@@ -36,15 +36,16 @@ prometheus:
 # return HTTP 404 and produce zero samples. The scrape config itself is
 # still correct and harmless.
 additionalServiceMonitors:
-  # Catches both n8n-main and n8n-webhook-processor in one selector,
-  # because the chart applies app.kubernetes.io/{name,instance}=n8n to
-  # both Services. Prometheus's auto-added `service` label distinguishes
-  # samples per component.
+  # Only n8n-main exposes /metrics. n8n only registers the Prometheus
+  # route on the default server process; the webhook-processor (running
+  # `n8n webhook`) and the worker (running `n8n worker`) do not mount
+  # /metrics even when N8N_METRICS=true is set on the pod. /metrics on
+  # those returns Express's default 404.
   #
-  # n8n-worker pods are NOT scraped here: the chart's worker Deployment
-  # exposes no ports and has no Service, so there is no reachable
-  # endpoint. Enabling worker metrics is an n8n-workspace change.
-  - name: n8n
+  # The n8n chart adds an app.kubernetes.io/component label to every
+  # Service *except* n8n-main, so we select n8n-main by requiring the
+  # component label to be absent.
+  - name: n8n-main
     namespaceSelector:
       matchNames:
         - n8n
@@ -52,6 +53,9 @@ additionalServiceMonitors:
       matchLabels:
         app.kubernetes.io/name: n8n
         app.kubernetes.io/instance: n8n
+      matchExpressions:
+        - key: app.kubernetes.io/component
+          operator: DoesNotExist
     endpoints:
       - port: http
         path: /metrics

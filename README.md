@@ -26,29 +26,29 @@ operator's own ServiceMonitors), this module declares two extra
 
 | ServiceMonitor | Namespace | Selector | Port / Path |
 |---|---|---|---|
-| `n8n` | `n8n` | `app.kubernetes.io/name=n8n, instance=n8n` (matches `n8n-main` **and** `n8n-webhook-processor`) | `http` (5678) `/metrics` |
+| `n8n-main` | `n8n` | `name=n8n, instance=n8n` **and** `component` label absent | `http` (5678) `/metrics` |
 | `keda` | `keda` | `app=keda-operator-metrics-apiserver` | `metrics` (8080) `/metrics` |
 
-**`n8n` scrape is gated on an upstream change** — the n8n chart does not
-set `N8N_METRICS=true` by default, so `/metrics` returns HTTP 404 until
-the `n8n` Terraform Cloud workspace's Helm values include:
+**Only `n8n-main` is scraped** — n8n mounts the Prometheus `/metrics`
+route on the default server process only. The webhook-processor
+(running `n8n webhook`) and the worker (running `n8n worker`) **do
+not** expose `/metrics` even when `N8N_METRICS=true` is set on those
+pods; the route is simply not registered by the n8n CLI in those
+modes. Webhook-processor responds only on `/healthz`; the worker has
+no HTTP server at all.
+
+**`n8n-main` scrape is gated on an upstream change** — the n8n chart
+does not set `N8N_METRICS=true` by default, so `/metrics` returns
+HTTP 404 until the `n8n` Terraform Cloud workspace's Helm values
+include:
 
 ```yaml
 main:
   extraEnv:
     N8N_METRICS: "true"
-webhookProcessor:
-  extraEnv:
-    N8N_METRICS: "true"
 ```
 
 Until then the scrape config is correct but produces zero samples.
-
-**`n8n-worker` is intentionally not scraped** — the chart's worker
-Deployment exposes no ports and has no Service, so there is no
-reachable endpoint. Adding worker metrics requires exposing a port
-in the n8n chart's worker template plus a (headless) Service or
-`PodMonitor`, both upstream changes.
 
 ## Prerequisites
 
