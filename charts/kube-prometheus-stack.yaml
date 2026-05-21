@@ -25,59 +25,64 @@ prometheus:
       limits:
         memory: 2Gi
 
-# ServiceMonitors created alongside the kube-prometheus-stack release.
-# Placing them here (instead of as standalone Terraform resources) avoids
-# the Prometheus-Operator-CRD-must-exist-at-plan-time bootstrap problem
-# and couples the scrape config lifecycle to the chart release.
-#
-# NB: the n8n workloads expose /metrics on port 5678 only when the n8n
-# pods are started with N8N_METRICS=true (set in the n8n workspace's
-# Helm values). Until that env var is enabled upstream, these scrapes
-# return HTTP 404 and produce zero samples. The scrape config itself is
-# still correct and harmless.
-additionalServiceMonitors:
-  # Only n8n-main exposes /metrics. n8n only registers the Prometheus
-  # route on the default server process; the webhook-processor (running
-  # `n8n webhook`) and the worker (running `n8n worker`) do not mount
-  # /metrics even when N8N_METRICS=true is set on the pod. /metrics on
-  # those returns Express's default 404.
+  # ServiceMonitors created alongside the kube-prometheus-stack release.
+  # Nested under `prometheus:` (NOT top-level) — the chart moved this key
+  # path between chart 76.x and 85.x; helm silently accepts an orphaned
+  # top-level `additionalServiceMonitors:` as extra user data and renders
+  # nothing, so the position matters.
   #
-  # The n8n chart adds an app.kubernetes.io/component label to every
-  # Service *except* n8n-main, so we select n8n-main by requiring the
-  # component label to be absent.
-  - name: n8n-main
-    namespaceSelector:
-      matchNames:
-        - n8n
-    selector:
-      matchLabels:
-        app.kubernetes.io/name: n8n
-        app.kubernetes.io/instance: n8n
-      matchExpressions:
-        - key: app.kubernetes.io/component
-          operator: DoesNotExist
-    endpoints:
-      - port: http
-        path: /metrics
-        interval: 30s
-        scrapeTimeout: 10s
+  # Placing scrape config here (instead of as standalone Terraform
+  # resources) avoids the Prometheus-Operator-CRD-must-exist-at-plan-time
+  # bootstrap problem and couples the lifecycle to the chart release.
+  #
+  # NB: the n8n workloads expose /metrics on port 5678 only when the n8n
+  # pods are started with N8N_METRICS=true (set in the n8n workspace's
+  # Helm values). Until that env var is enabled upstream, these scrapes
+  # return HTTP 404 and produce zero samples. The scrape config itself is
+  # still correct and harmless.
+  additionalServiceMonitors:
+    # Only n8n-main exposes /metrics. n8n only registers the Prometheus
+    # route on the default server process; the webhook-processor (running
+    # `n8n webhook`) and the worker (running `n8n worker`) do not mount
+    # /metrics even when N8N_METRICS=true is set on the pod. /metrics on
+    # those returns Express's default 404.
+    #
+    # The n8n chart adds an app.kubernetes.io/component label to every
+    # Service *except* n8n-main, so we select n8n-main by requiring the
+    # component label to be absent.
+    - name: n8n-main
+      namespaceSelector:
+        matchNames:
+          - n8n
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: n8n
+          app.kubernetes.io/instance: n8n
+        matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: DoesNotExist
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
+          scrapeTimeout: 10s
 
-  # KEDA underpins n8n's queue-mode worker autoscaling. Scrape the
-  # operator-metrics-apiserver Service on its `metrics` (8080) port;
-  # the `https` (443→6443) port on the same Service is the extension
-  # API server, not Prometheus-format — do not scrape it.
-  - name: keda
-    namespaceSelector:
-      matchNames:
-        - keda
-    selector:
-      matchLabels:
-        app: keda-operator-metrics-apiserver
-    endpoints:
-      - port: metrics
-        path: /metrics
-        interval: 30s
-        scrapeTimeout: 10s
+    # KEDA underpins n8n's queue-mode worker autoscaling. Scrape the
+    # operator-metrics-apiserver Service on its `metrics` (8080) port;
+    # the `https` (443→6443) port on the same Service is the extension
+    # API server, not Prometheus-format — do not scrape it.
+    - name: keda
+      namespaceSelector:
+        matchNames:
+          - keda
+      selector:
+        matchLabels:
+          app: keda-operator-metrics-apiserver
+      endpoints:
+        - port: metrics
+          path: /metrics
+          interval: 30s
+          scrapeTimeout: 10s
 
 alertmanager:
   alertmanagerSpec:
