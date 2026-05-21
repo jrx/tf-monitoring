@@ -1,0 +1,168 @@
+# Values for prometheus-community/kube-prometheus-stack.
+# Reference: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+
+crds:
+  enabled: true
+
+defaultRules:
+  create: true
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    # Scrape ServiceMonitor / PodMonitor / Probe / Rule objects from any
+    # namespace, not just those matching the chart's release labels. This
+    # lets other workloads ship monitoring config without coordinating
+    # selectors with this stack.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+
+  # ServiceMonitors created alongside the kube-prometheus-stack release.
+  # Nested under `prometheus:` (NOT top-level) — the chart moved this key
+  # path between chart 76.x and 85.x; helm silently accepts an orphaned
+  # top-level `additionalServiceMonitors:` as extra user data and renders
+  # nothing, so the position matters.
+  #
+  # Placing scrape config here (instead of as standalone Terraform
+  # resources) avoids the Prometheus-Operator-CRD-must-exist-at-plan-time
+  # bootstrap problem and couples the lifecycle to the chart release.
+  #
+  # NB: the n8n workloads expose /metrics on port 5678 only when the n8n
+  # pods are started with N8N_METRICS=true (set in the n8n workspace's
+  # Helm values). Until that env var is enabled upstream, these scrapes
+  # return HTTP 404 and produce zero samples. The scrape config itself is
+  # still correct and harmless.
+  additionalServiceMonitors:
+    # Only n8n-main exposes /metrics. n8n only registers the Prometheus
+    # route on the default server process; the webhook-processor (running
+    # `n8n webhook`) and the worker (running `n8n worker`) do not mount
+    # /metrics even when N8N_METRICS=true is set on the pod. /metrics on
+    # those returns Express's default 404.
+    #
+    # The n8n chart adds an app.kubernetes.io/component label to every
+    # Service *except* n8n-main, so we select n8n-main by requiring the
+    # component label to be absent.
+    - name: n8n-main
+      namespaceSelector:
+        matchNames:
+          - n8n
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: n8n
+          app.kubernetes.io/instance: n8n
+        matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: DoesNotExist
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
+          scrapeTimeout: 10s
+
+    # KEDA underpins n8n's queue-mode worker autoscaling. Scrape the
+    # operator-metrics-apiserver Service on its `metrics` (8080) port;
+    # the `https` (443→6443) port on the same Service is the extension
+    # API server, not Prometheus-format — do not scrape it.
+    - name: keda
+      namespaceSelector:
+        matchNames:
+          - keda
+      selector:
+        matchLabels:
+          app: keda-operator-metrics-apiserver
+      endpoints:
+        - port: metrics
+          path: /metrics
+          interval: 30s
+          scrapeTimeout: 10s
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+grafana:
+  defaultDashboardsTimezone: utc
+
+  # Project the n8n-postgres-grafana Secret (managed by Terraform in
+  # postgres-datasource.tf) into the Grafana container as the env var
+  # N8N_POSTGRES_PASSWORD. The datasource provisioning YAML references
+  # it as `$N8N_POSTGRES_PASSWORD` (Grafana resolves env-var refs in
+  # provisioning YAML; the `$__file{}` syntax is NOT resolved there —
+  # only in grafana.ini).
+  envValueFrom:
+    N8N_POSTGRES_PASSWORD:
+      secretKeyRef:
+        name: n8n-postgres-grafana
+        key: password
+
+  # Wire Loki and the n8n RDS Postgres database in as Grafana datasources
+  # alongside the chart's built-in Prometheus datasource.
+  #
+  # Loki ships with multi-tenancy on; our Loki values file uses tenant_id
+  # "1", so the X-Scope-OrgID header is set here. The n8n-postgres
+  # datasource is consumed by the n8n-workflow-execution-analytics
+  # dashboard, which runs raw SQL (no exporter / no Prometheus scrape).
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.monitoring.svc.cluster.local
+      jsonData:
+        httpHeaderName1: X-Scope-OrgID
+      secureJsonData:
+        httpHeaderValue1: "1"
+    - name: n8n-postgres
+      type: postgres
+      uid: n8n-postgres
+      access: proxy
+      url: ${n8n_db_host}:${n8n_db_port}
+      user: ${n8n_db_user}
+      # The default database needs to be set in BOTH places: top-level
+      # `database` is the legacy `postgres` plugin field; `jsonData.database`
+      # is what the modern `grafana-postgresql-datasource` plugin reads
+      # (Grafana auto-migrates `type: postgres` to that plugin). Setting
+      # only the top-level field makes panels with no per-target `dataset`
+      # show "Configure a default database for the dashboard".
+      database: ${n8n_db_name}
+      jsonData:
+        database: ${n8n_db_name}
+        sslmode: require
+        postgresVersion: 1500
+      secureJsonData:
+        password: $N8N_POSTGRES_PASSWORD
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi

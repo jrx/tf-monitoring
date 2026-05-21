@@ -1,7 +1,74 @@
+# Values for grafana/loki (chart v7.x).
+# Reference: https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
+#
+# SingleBinary deployment, filesystem storage on emptyDir — suitable for a
+# sandbox cluster. Logs are lost on pod restart. For durability, switch storage
+# to S3, set singleBinary.persistence.enabled=true with a real StorageClass, or
+# run the SimpleScalable topology.
+
+deploymentMode: SingleBinary
+
 loki:
   commonConfig:
     replication_factor: 1
   storage:
-    type: 'filesystem'
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        object_store: filesystem
+        store: tsdb
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  # Disable the auth_enabled=false path: alloy already sets the X-Scope-OrgID
+  # header and Grafana is configured with httpHeaderName1, so leaving multi-
+  # tenancy on keeps both producers and consumers consistent.
+  auth_enabled: true
+
+# Scale all non-SingleBinary deployments to zero.
+write:
+  replicas: 0
+read:
+  replicas: 0
+backend:
+  replicas: 0
+
 singleBinary:
   replicas: 1
+  # No EBS CSI driver / default StorageClass on this cluster, so PVC binding
+  # would hang forever. Use emptyDir for sandbox use.
+  persistence:
+    enabled: false
+  # With persistence disabled the chart removes the `storage` volume entirely,
+  # but Loki still needs /var/loki to be writable (readOnlyRootFilesystem=true
+  # is the chart's default container securityContext). Inject an emptyDir so
+  # the ruler-storage module can mkdir /var/loki at startup.
+  extraVolumes:
+    - name: loki-storage
+      emptyDir: {}
+  extraVolumeMounts:
+    - name: loki-storage
+      mountPath: /var/loki
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Disable optional components that add noise on a sandbox cluster and would
+# require Prometheus Operator CRDs at install time.
+# NB: in chart 7.x these moved from monitoring.* to top-level.
+serviceMonitor:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
