@@ -130,6 +130,39 @@ kubectl -n monitoring get secret kube-prometheus-stack-grafana \
 Open <http://localhost:3000> — username `admin`, password from the
 secret above.
 
+### Access Prometheus
+
+The Prometheus UI (PromQL console, targets page, alerts page,
+configuration view) is on the `kube-prometheus-stack-prometheus`
+Service, port `9090`:
+
+```sh
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090
+```
+
+Then open:
+
+- <http://localhost:9090/targets> — scrape target health (look here to
+  confirm `n8n-main` and `keda` are `UP`)
+- <http://localhost:9090/graph> — PromQL console, e.g.
+  `n8n_process_resident_memory_bytes` or `sum by (job) (up)`
+- <http://localhost:9090/alerts> — alerts loaded from the chart's
+  default rules
+- <http://localhost:9090/config> — the fully-rendered scrape
+  configuration the operator generated from the ServiceMonitor CRs
+
+For day-to-day querying, prefer Grafana's *Explore* tab against the
+pre-wired Prometheus datasource — the port-forward is mainly for
+debugging discovery and scrape failures.
+
+### Access Alertmanager
+
+```sh
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093
+```
+
+Open <http://localhost:9093>.
+
 ## Operational notes
 
 - **CRDs**: the `kube-prometheus-stack` chart installs Prometheus
