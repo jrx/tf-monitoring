@@ -182,11 +182,21 @@ API within a few seconds.
 1. Drop a JSON file in `./dashboards/`. Filename without `.json`
    becomes the ConfigMap suffix; the dashboard's own `title` shows up
    in Grafana.
-2. If the JSON was exported from grafana.com (and contains
-   `"__inputs"` referencing `DS_PROMETHEUS`), replace **all** occurrences
-   of `${DS_PROMETHEUS}` with `prometheus` (the datasource UID this
-   stack uses by default). Otherwise every panel will render the error
-   *"Datasource ${DS_PROMETHEUS} not found"*.
+2. If the JSON was exported from grafana.com:
+   - Replace **all** occurrences of `${DS_PROMETHEUS}` with `prometheus`
+     (the datasource UID this stack uses by default). Otherwise every
+     panel will render *"Datasource ${DS_PROMETHEUS} not found"*.
+   - Same for Postgres-backed dashboards: replace
+     `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` with `n8n-postgres`.
+   - **Check for hardcoded `dataset` fields**: some dashboard authors
+     export with their local database name baked in (e.g. the n8n
+     workflow-execution-analytics dashboard hardcodes
+     `"dataset": "n8n_data"`). Grafana's `grafana-postgresql-datasource`
+     plugin honors the `dataset` field; when it doesn't match the
+     datasource's database, panels show *"Configure a default database
+     for the dashboard"*. `dashboards.tf` already substitutes
+     `n8n_data` -> `var.n8n_db_name` at apply time; add more entries
+     there for new dashboards that bring their own hardcoded names.
 3. `terraform apply` — the sidecar will pick up the new ConfigMap and
    make the dashboard visible in Grafana under *Dashboards → General*
    within ~30s.

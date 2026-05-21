@@ -15,6 +15,27 @@
 locals {
   dashboard_dir = "${path.module}/dashboards"
   dashboards    = fileset(local.dashboard_dir, "*.json")
+
+  # Apply environment-specific substitutions to every dashboard JSON at
+  # apply time, so the files on disk stay close to their grafana.com
+  # originals and so changes to vars (e.g. var.n8n_db_name) propagate
+  # without re-editing JSON files.
+  #
+  # Currently handles:
+  # - `"dataset": "n8n_data"` -> `"dataset": "<var.n8n_db_name>"`
+  #   The n8n workflow-execution-analytics dashboard's author hardcoded
+  #   the database name `n8n_data` in some panel targets. Grafana's new
+  #   `grafana-postgresql-datasource` plugin honors that `dataset` field
+  #   and prompts the user to "configure a default database" when it
+  #   doesn't match the datasource's database.
+  dashboard_content = {
+    for f in local.dashboards :
+    f => replace(
+      file("${local.dashboard_dir}/${f}"),
+      "\"dataset\": \"n8n_data\"",
+      "\"dataset\": \"${var.n8n_db_name}\"",
+    )
+  }
 }
 
 resource "kubernetes_config_map" "grafana_dashboard" {
@@ -30,7 +51,7 @@ resource "kubernetes_config_map" "grafana_dashboard" {
   }
 
   data = {
-    (each.value) = file("${local.dashboard_dir}/${each.value}")
+    (each.value) = local.dashboard_content[each.value]
   }
 
   depends_on = [helm_release.kube_prometheus_stack]
