@@ -13,11 +13,11 @@ provider "aws" {
   region = var.aws_region
 }
 
-data "terraform_remote_state" "eks" {
+data "terraform_remote_state" "n8n" {
   backend = "remote"
   config = {
     workspaces = {
-      name = "eks"
+      name = "n8n"
     }
     hostname     = "app.terraform.io"
     organization = "jrxhc"
@@ -25,7 +25,7 @@ data "terraform_remote_state" "eks" {
 }
 
 data "aws_eks_cluster" "cluster" {
-  name = data.terraform_remote_state.eks.outputs.cluster_id
+  name = data.terraform_remote_state.n8n.outputs.cluster_name
 }
 data "aws_eks_cluster_auth" "eks_cluster" {
   name = data.aws_eks_cluster.cluster.name
