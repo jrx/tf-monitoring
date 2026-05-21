@@ -71,6 +71,7 @@ Until then the scrape config is correct but produces zero samples.
 ├── data.tf          # remote_state + aws_eks_cluster lookup
 ├── main.tf          # namespace + 3 helm_releases
 ├── dashboards.tf    # ConfigMaps for every ./dashboards/*.json
+├── postgres-datasource.tf  # n8n RDS connection + Grafana password Secret
 ├── variables.tf     # inputs (region, namespace, chart versions)
 ├── outputs.tf       # namespace, cluster, Grafana service/secret names
 ├── charts/
@@ -78,7 +79,8 @@ Until then the scrape config is correct but produces zero samples.
 │   ├── loki.yaml
 │   └── alloy.yaml
 ├── dashboards/
-│   └── n8n-system-health.json
+│   ├── n8n-system-health.json
+│   └── n8n-workflow-execution-analytics.json
 └── backend.hcl      # TFC remote backend config
 ```
 
@@ -199,9 +201,42 @@ into the file.
 
 **Shipped dashboards**
 
-| File | Source | What it shows |
-|---|---|---|
-| `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), revision 1, `${DS_PROMETHEUS}` substituted | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
+| File | Source | Datasource | What it shows |
+|---|---|---|---|
+| `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), rev 1, `${DS_PROMETHEUS}` → `prometheus` | Prometheus | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
+| `n8n-workflow-execution-analytics.json` | [grafana.com/dashboards/24475](https://grafana.com/grafana/dashboards/24475-n8n-workflow-execution-analytics/), rev 1, `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` → `n8n-postgres` | PostgreSQL (n8n RDS) | Workflow execution analytics by querying the n8n DB directly (`execution_entity`, `workflow_entity`): success/error/crash counts, p50/p95/p99 duration, per-workflow stats, tag breakdowns. |
+
+## n8n PostgreSQL datasource
+
+The `n8n-workflow-execution-analytics` dashboard reads n8n's RDS
+Postgres database directly via Grafana's built-in `postgres`
+datasource plugin (datasource UID `n8n-postgres`). Wiring:
+
+- `postgres-datasource.tf` reads the n8n Deployment's env to learn the
+  RDS host / port / db / user, and copies n8n's DB password from the
+  `n8n` Terraform Cloud workspace's `db_password` remote-state output
+  into a `n8n-postgres-grafana` Secret in the `monitoring` namespace.
+- `charts/kube-prometheus-stack.yaml` mounts that Secret read-only at
+  `/etc/secrets/n8n-postgres/password` and references it from the
+  `additionalDataSources` entry as `$__file{...}` — the password
+  never appears as a pod env var or in the Grafana HTTP API responses.
+
+> ⚠️ **Security note.** The Grafana datasource currently re-uses n8n's
+> *application* DB user, which has full `OWNER` privileges on the n8n
+> schema. Any Grafana user with Explore permissions can run
+> `DELETE FROM execution_entity` (or worse) against the live n8n
+> database. This is acceptable for the sandbox cluster but **not**
+> for production. Before promoting:
+>
+> 1. Create a dedicated `grafana_readonly` Postgres role with only
+>    `USAGE` on schema and `SELECT` on tables
+>    (`GRANT USAGE ON SCHEMA public TO grafana_readonly;`
+>    `GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_readonly;`
+>    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_readonly;`).
+> 2. Store its password in AWS Secrets Manager, owned by the `n8n`
+>    workspace.
+> 3. Update `postgres-datasource.tf` to read from that Secrets Manager
+>    entry instead of `terraform_remote_state.n8n.outputs.db_password`.
 
 ## Operational notes
 

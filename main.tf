@@ -15,12 +15,20 @@ resource "helm_release" "kube_prometheus_stack" {
   version    = var.kube_prometheus_stack_chart_version
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
+  # The values file uses Terraform's templatefile() placeholders to inject
+  # the n8n RDS connection details (defined in postgres-datasource.tf).
   values = [
-    file("${path.module}/charts/kube-prometheus-stack.yaml")
+    templatefile("${path.module}/charts/kube-prometheus-stack.yaml", {
+      n8n_db_host = var.n8n_db_host
+      n8n_db_port = var.n8n_db_port
+      n8n_db_name = var.n8n_db_name
+      n8n_db_user = var.n8n_db_user
+    })
   ]
 
   depends_on = [
     kubernetes_namespace.monitoring,
+    kubernetes_secret.n8n_postgres_grafana,
   ]
 }
 

@@ -95,9 +95,26 @@ alertmanager:
 
 grafana:
   defaultDashboardsTimezone: utc
-  # Wire Loki in as a Grafana datasource alongside the chart's built-in
-  # Prometheus datasource. Loki ships with multi-tenancy on, and our Loki
-  # values file uses tenant_id "1", so the X-Scope-OrgID header is set here.
+
+  # Project the n8n-postgres-grafana Secret (managed by Terraform in
+  # postgres-datasource.tf) into the Grafana container as the env var
+  # N8N_POSTGRES_PASSWORD. The datasource provisioning YAML references
+  # it as `$N8N_POSTGRES_PASSWORD` (Grafana resolves env-var refs in
+  # provisioning YAML; the `$__file{}` syntax is NOT resolved there —
+  # only in grafana.ini).
+  envValueFrom:
+    N8N_POSTGRES_PASSWORD:
+      secretKeyRef:
+        name: n8n-postgres-grafana
+        key: password
+
+  # Wire Loki and the n8n RDS Postgres database in as Grafana datasources
+  # alongside the chart's built-in Prometheus datasource.
+  #
+  # Loki ships with multi-tenancy on; our Loki values file uses tenant_id
+  # "1", so the X-Scope-OrgID header is set here. The n8n-postgres
+  # datasource is consumed by the n8n-workflow-execution-analytics
+  # dashboard, which runs raw SQL (no exporter / no Prometheus scrape).
   additionalDataSources:
     - name: Loki
       type: loki
@@ -107,6 +124,19 @@ grafana:
         httpHeaderName1: X-Scope-OrgID
       secureJsonData:
         httpHeaderValue1: "1"
+    - name: n8n-postgres
+      type: postgres
+      uid: n8n-postgres
+      access: proxy
+      url: ${n8n_db_host}:${n8n_db_port}
+      database: ${n8n_db_name}
+      user: ${n8n_db_user}
+      jsonData:
+        sslmode: require
+        postgresVersion: 1500
+      secureJsonData:
+        password: $N8N_POSTGRES_PASSWORD
+
   resources:
     requests:
       cpu: 100m
