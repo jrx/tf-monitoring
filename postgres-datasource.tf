@@ -8,15 +8,10 @@
 # When this leaves sandbox, replace with a dedicated read-only role
 # (see ./README.md "n8n PostgreSQL datasource" section).
 #
-# The connection details below default to what the n8n Terraform Cloud
-# workspace's Helm chart produces in this account. Override via
-# workspace variables if the n8n workspace's chart renames things.
-
-variable "n8n_db_host" {
-  description = "RDS endpoint hostname for the n8n Postgres database."
-  type        = string
-  default     = "n8n-postgres-jrx-test.c962ogeoo93j.eu-north-1.rds.amazonaws.com"
-}
+# The DB host comes from the n8n Terraform Cloud workspace's `rds_endpoint`
+# remote-state output — single source of truth for the RDS hostname. The
+# remaining DB attributes are not exposed by the n8n workspace, so they
+# stay as overridable variables with sensible defaults.
 
 variable "n8n_db_port" {
   description = "TCP port for the n8n Postgres database."

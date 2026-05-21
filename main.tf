@@ -16,10 +16,12 @@ resource "helm_release" "kube_prometheus_stack" {
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   # The values file uses Terraform's templatefile() placeholders to inject
-  # the n8n RDS connection details (defined in postgres-datasource.tf).
+  # the n8n RDS connection details. Host comes from the n8n workspace's
+  # rds_endpoint output; port/db/user come from variables in
+  # postgres-datasource.tf.
   values = [
     templatefile("${path.module}/charts/kube-prometheus-stack.yaml", {
-      n8n_db_host = var.n8n_db_host
+      n8n_db_host = data.terraform_remote_state.n8n.outputs.rds_endpoint
       n8n_db_port = var.n8n_db_port
       n8n_db_name = var.n8n_db_name
       n8n_db_user = var.n8n_db_user
