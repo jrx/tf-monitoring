@@ -129,9 +129,16 @@ grafana:
       uid: n8n-postgres
       access: proxy
       url: ${n8n_db_host}:${n8n_db_port}
-      database: ${n8n_db_name}
       user: ${n8n_db_user}
+      # The default database needs to be set in BOTH places: top-level
+      # `database` is the legacy `postgres` plugin field; `jsonData.database`
+      # is what the modern `grafana-postgresql-datasource` plugin reads
+      # (Grafana auto-migrates `type: postgres` to that plugin). Setting
+      # only the top-level field makes panels with no per-target `dataset`
+      # show "Configure a default database for the dashboard".
+      database: ${n8n_db_name}
       jsonData:
+        database: ${n8n_db_name}
         sslmode: require
         postgresVersion: 1500
       secureJsonData:
