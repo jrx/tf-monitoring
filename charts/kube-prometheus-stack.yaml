@@ -1,0 +1,72 @@
+# Values for prometheus-community/kube-prometheus-stack.
+# Reference: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+
+crds:
+  enabled: true
+
+defaultRules:
+  create: true
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    # Scrape ServiceMonitor / PodMonitor / Probe / Rule objects from any
+    # namespace, not just those matching the chart's release labels. This
+    # lets other workloads ship monitoring config without coordinating
+    # selectors with this stack.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+grafana:
+  defaultDashboardsTimezone: utc
+  # Wire Loki in as a Grafana datasource alongside the chart's built-in
+  # Prometheus datasource. Loki ships with multi-tenancy on, and our Loki
+  # values file uses tenant_id "1", so the X-Scope-OrgID header is set here.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.monitoring.svc.cluster.local
+      jsonData:
+        httpHeaderName1: X-Scope-OrgID
+      secureJsonData:
+        httpHeaderValue1: "1"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi

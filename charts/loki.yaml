@@ -1,24 +1,61 @@
-# https://github.com/grafana/loki/issues/12610
+# Values for grafana/loki (chart v6.x).
+# Reference: https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
+#
+# SingleBinary deployment, filesystem storage — suitable for a sandbox cluster.
+# For durability, switch storage to S3 and run the SimpleScalable topology.
+
 deploymentMode: SingleBinary
+
 loki:
   commonConfig:
     replication_factor: 1
   storage:
-    type: 'filesystem'
+    type: filesystem
   schemaConfig:
     configs:
-      - from: 2024-04-01
+      - from: "2024-04-01"
         object_store: filesystem
         store: tsdb
         schema: v13
         index:
           prefix: index_
           period: 24h
+  # Disable the auth_enabled=false path: alloy already sets the X-Scope-OrgID
+  # header and Grafana is configured with httpHeaderName1, so leaving multi-
+  # tenancy on keeps both producers and consumers consistent.
+  auth_enabled: true
+
+# Scale all non-SingleBinary deployments to zero.
 write:
   replicas: 0
 read:
   replicas: 0
 backend:
   replicas: 0
+
 singleBinary:
   replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Disable optional components that would otherwise pull in a ServiceMonitor
+# before the kube-prometheus-stack CRDs are installed, plus components that
+# add noise on a sandbox cluster.
+monitoring:
+  serviceMonitor:
+    enabled: false
+  selfMonitoring:
+    enabled: false
+  lokiCanary:
+    enabled: false
+test:
+  enabled: false
+
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
