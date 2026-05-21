@@ -19,7 +19,7 @@ variable "monitoring_namespace" {
 variable "kube_prometheus_stack_chart_version" {
   description = "Pinned chart version for prometheus-community/kube-prometheus-stack."
   type        = string
-  default     = "76.4.0"
+  default     = "85.2.0"
 }
 
 variable "loki_chart_version" {
