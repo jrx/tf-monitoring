@@ -67,7 +67,7 @@
   "description": "Comprehensive analytics dashboard for n8n workflow automation platform. Monitor workflow execution performance, track success rates, identify bottlenecks, and optimize your automation workflows.  \r\n\r\nhttps://github.com/nluecke/grafana-n8n-dashboards/tree/main/dashboards/postgresql",
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "links": [],
   "panels": [
     {
@@ -1536,14 +1536,6 @@
                   "mode": "continuous-RdYlGr",
                   "seriesBy": "last"
                 }
-              },
-              {
-                "id": "max",
-                "value": 100
-              },
-              {
-                "id": "min",
-                "value": 0
               }
             ]
           },
@@ -1884,7 +1876,7 @@
           "hide": false,
           "range": true,
           "rawQuery": true,
-          "rawSql": "SELECT\n  e.\"id\" AS execution_id,\n  w.\"name\" AS workflow_name,\n  e.\"mode\",\n  e.\"status\",\n  e.\"startedAt\",\n  EXTRACT(epoch FROM (NOW() - e.\"startedAt\")) * 1000 AS wait_time\nFROM execution_entity e\nLEFT JOIN workflow_entity w ON w.\"id\" = e.\"workflowId\"\nWHERE e.\"finished\" = false\n  AND e.\"status\" = 'new'\nORDER BY e.\"startedAt\" ASC\nLIMIT 20;",
+          "rawSql": "SELECT\n  e.\"id\" AS execution_id,\n  w.\"name\" AS workflow_name,\n  e.\"mode\",\n  e.\"status\",\n  e.\"startedAt\",\n  EXTRACT(epoch FROM (NOW() - e.\"startedAt\")) AS wait_time\nFROM execution_entity e\nLEFT JOIN workflow_entity w ON w.\"id\" = e.\"workflowId\"\nWHERE e.\"finished\" = false\n  AND e.\"status\" = 'new'\nORDER BY e.\"startedAt\" ASC\nLIMIT 20;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1942,7 +1934,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "runtime"
+              "options": "runtime_seconds"
             },
             "properties": [
               {
@@ -1980,7 +1972,7 @@
         "sortBy": [
           {
             "desc": true,
-            "displayName": "runtime_minutes"
+            "displayName": "runtime_seconds"
           }
         ]
       },
@@ -2127,6 +2119,7 @@
     "n8n",
     "postgresql"
   ],
+  "refresh": "5m",
   "templating": {
     "list": []
   },
