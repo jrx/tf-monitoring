@@ -1,0 +1,1399 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "n8n governance dashboard. Surfaces three customer-impact patterns the platform-team failed to catch in the past: quota overrun, high-failure-rate workflows, and unattended (\"zombie\") workflows still running months after deployment. Drill into a single workflow or project with the $workflow and $project variables. $quota is an editable numeric textbox that colors the Quota Consumed gauge.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 101,
+      "panels": [],
+      "title": "Quota & execution volume (this month)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Total successful + failed + other executions in the current calendar month, after applying the $workflow and $project filters. Soft-deleted rows excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 8
+      },
+      "id": 102,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Executions this month\"\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}));",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Executions this month",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Percentage of the $quota variable consumed by month-to-date executions. Crosses 100% means the threshold has been exceeded.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 120,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 8
+      },
+      "id": 103,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ROUND(100.0 * COUNT(*) / NULLIF(${quota:raw}, 0), 2) AS \"% of quota\"\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}));",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Quota consumed",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Daily execution volume since the start of the current month, broken down by status.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "success"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "other"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "id": 104,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  DATE_TRUNC('day', e.\"startedAt\") AS time,\n  COUNT(*) FILTER (WHERE e.status = 'success') AS success,\n  COUNT(*) FILTER (WHERE e.status IN ('error','crashed')) AS failure,\n  COUNT(*) FILTER (WHERE e.status NOT IN ('success','error','crashed')) AS other\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY 1\nORDER BY 1;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Daily execution volume (current month)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "id": 105,
+      "panels": [],
+      "title": "Failure hotspots (this month)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Top 10 workflows by execution count this month, with their owning project and success rate. A high count + high success rate is normal; a high count + low success rate is a hotspot worth investigating.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "executions"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu",
+                  "seriesBy": "last"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "success_rate_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-RdYlGr",
+                  "seriesBy": "last"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 10
+      },
+      "id": 106,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "executions"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  w.name AS workflow,\n  COALESCE(p.name, '(no project)') AS project,\n  COUNT(*) AS executions,\n  ROUND(100.0 * COUNT(*) FILTER (WHERE e.status = 'success') / NULLIF(COUNT(*), 0), 2) AS success_rate_pct\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY w.id, w.name, p.name\nORDER BY executions DESC\nLIMIT 10;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Top 10 workflows by execution count",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Top 10 workflows by failure count this month. The failure_rate_pct column is colored red when above 90%, surfacing workflows that are misconfigured rather than just busy.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failures"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-YlRd",
+                  "seriesBy": "last"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failure_rate_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 20
+                    },
+                    {
+                      "color": "orange",
+                      "value": 50
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 10
+      },
+      "id": 107,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "failures"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  w.name AS workflow,\n  COALESCE(p.name, '(no project)') AS project,\n  COUNT(*) FILTER (WHERE e.status IN ('error','crashed')) AS failures,\n  COUNT(*) AS total,\n  ROUND(100.0 * COUNT(*) FILTER (WHERE e.status IN ('error','crashed')) / NULLIF(COUNT(*), 0), 2) AS failure_rate_pct\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY w.id, w.name, p.name\nHAVING COUNT(*) FILTER (WHERE e.status IN ('error','crashed')) > 0\nORDER BY failures DESC\nLIMIT 10;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Top 10 workflows by failure count",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "id": 108,
+      "panels": [],
+      "title": "Zombie & stale workflows",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Workflows that have been active and running for more than 30 days, AND have NOT been edited in the last 30 days. These are 'zombies' \u2014 running unattended, no one is reviewing them. Matches the demo-workflow-ran-4-months pattern. The days_since_edit column is colored red when high.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "days_since_edit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "d"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 30
+                    },
+                    {
+                      "color": "orange",
+                      "value": 90
+                    },
+                    {
+                      "color": "red",
+                      "value": 180
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_executions"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu",
+                  "seriesBy": "last"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_edited"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_execution"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_execution"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 10
+      },
+      "id": 109,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "days_since_edit"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  w.name AS workflow,\n  COALESCE(p.name, '(no project)') AS project,\n  MIN(e.\"startedAt\") AS first_execution,\n  MAX(e.\"startedAt\") AS last_execution,\n  w.\"updatedAt\" AS last_edited,\n  EXTRACT(DAY FROM NOW() - w.\"updatedAt\")::int AS days_since_edit,\n  COUNT(*) AS total_executions\nFROM workflow_entity w\nJOIN execution_entity e ON e.\"workflowId\" = w.id\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE w.active = true AND w.\"isArchived\" = false\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY w.id, w.name, p.name, w.\"updatedAt\"\nHAVING MIN(e.\"startedAt\") < NOW() - INTERVAL '30 days'\n   AND MAX(e.\"startedAt\") > NOW() - INTERVAL '7 days'\n   AND w.\"updatedAt\" < NOW() - INTERVAL '30 days'\nORDER BY days_since_edit DESC, total_executions DESC\nLIMIT 50;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Zombie workflows (active >30d, not edited >30d)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Active (non-archived) workflows that have logged ZERO successful executions in the last 7 days. Either they're broken (high failures_7d) or no one's triggering them (low executions_7d). Either way, candidates for review or deactivation.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failures_7d"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-YlRd",
+                  "seriesBy": "last"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_execution"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_edited"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 10
+      },
+      "id": 110,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "failures_7d"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  w.name AS workflow,\n  COALESCE(p.name, '(no project)') AS project,\n  w.\"updatedAt\" AS last_edited,\n  COUNT(e.*) AS executions_7d,\n  COUNT(e.*) FILTER (WHERE e.status = 'success') AS successes_7d,\n  COUNT(e.*) FILTER (WHERE e.status IN ('error','crashed')) AS failures_7d,\n  MAX(e.\"startedAt\") AS last_execution\nFROM workflow_entity w\nLEFT JOIN execution_entity e ON e.\"workflowId\" = w.id\n  AND e.\"startedAt\" > NOW() - INTERVAL '7 days'\n  AND e.\"deletedAt\" IS NULL\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE w.active = true AND w.\"isArchived\" = false\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY w.id, w.name, p.name, w.\"updatedAt\"\nHAVING COUNT(e.*) FILTER (WHERE e.status = 'success') = 0\nORDER BY failures_7d DESC, last_execution DESC NULLS LAST\nLIMIT 50;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Stale active workflows (0 successes in 7d)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+      },
+      "id": 111,
+      "panels": [],
+      "title": "Project & instance breakdown",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Month-to-date execution count grouped by owning project. Useful to attribute quota consumption back to a team / personal project.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 14,
+        "h": 10
+      },
+      "id": 112,
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(p.name, '(no project)') AS project,\n  COUNT(*) AS executions\nFROM execution_entity e\nJOIN workflow_entity w ON w.id = e.\"workflowId\"\nLEFT JOIN shared_workflow sw ON sw.\"workflowId\" = w.id AND sw.role = 'workflow:owner'\nLEFT JOIN project p ON p.id = sw.\"projectId\"\nWHERE e.\"startedAt\" >= DATE_TRUNC('month', NOW())\n  AND e.\"deletedAt\" IS NULL\n  AND ('__all__' IN (${workflow:singlequote}) OR w.id IN (${workflow:singlequote}))\n  AND ('__all__' IN (${project:singlequote}) OR sw.\"projectId\" IN (${project:singlequote}))\nGROUP BY p.name\nORDER BY executions DESC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Executions by project (this month)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "n8n-postgres"
+      },
+      "description": "Instance-wide totals \u2014 NOT filtered by $workflow or $project. These are the raw fleet numbers regardless of selection.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 32,
+        "w": 10,
+        "h": 10
+      },
+      "id": 113,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Executions this month\"\nFROM execution_entity\nWHERE \"startedAt\" >= DATE_TRUNC('month', NOW()) AND \"deletedAt\" IS NULL;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Executions lifetime\"\nFROM execution_entity WHERE \"deletedAt\" IS NULL;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Active workflows\"\nFROM workflow_entity WHERE active = true AND \"isArchived\" = false;",
+          "refId": "C",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "n8n_data",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "n8n-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Projects\" FROM project;",
+          "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Instance totals",
+      "type": "stat"
+    }
+  ],
+  "preload": false,
+  "refresh": "5m",
+  "schemaVersion": 42,
+  "tags": [
+    "n8n",
+    "postgresql",
+    "governance"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "quota",
+        "type": "textbox",
+        "label": "Execution threshold",
+        "description": "Number of monthly executions to colour the quota gauge against. Default 600 000. Editable per-session.",
+        "query": "600000",
+        "current": {
+          "value": "600000",
+          "text": "600000"
+        },
+        "options": [
+          {
+            "value": "600000",
+            "text": "600000",
+            "selected": true
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "name": "workflow",
+        "type": "query",
+        "label": "Workflow",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "n8n-postgres"
+        },
+        "definition": "SELECT id AS __value, name AS __text FROM workflow_entity WHERE \"isArchived\" = false ORDER BY name",
+        "query": {
+          "rawSql": "SELECT id AS __value, name AS __text FROM workflow_entity WHERE \"isArchived\" = false ORDER BY name",
+          "refId": "PostgresVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": "'__all__'",
+        "multi": true,
+        "hide": 0,
+        "sort": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      },
+      {
+        "name": "project",
+        "type": "query",
+        "label": "Project",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "n8n-postgres"
+        },
+        "definition": "SELECT id AS __value, name AS __text FROM project ORDER BY type, name",
+        "query": {
+          "rawSql": "SELECT id AS __value, name AS __text FROM project ORDER BY type, name",
+          "refId": "PostgresVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": "'__all__'",
+        "multi": true,
+        "hide": 0,
+        "sort": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "n8n Workflow Governance & Quota",
+  "uid": "n8n-governance",
+  "version": 1,
+  "weekStart": ""
+}
