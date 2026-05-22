@@ -178,6 +178,38 @@ empty panels. Only n8n-main exposes the endpoint.
 
 ---
 
+## Grafana variable gotcha: `allValue` bypasses formatters
+
+When you set a custom `allValue` on a multi-select query variable, Grafana
+substitutes that string **verbatim** into the query — the `:singlequote`,
+`:csv`, `:doublequote`, etc. formatters are **ignored** for the All case.
+
+For a Postgres `IN`-list filter that needs to work whether the user picks
+"All" or specific items, the formatter-bypass means:
+
+- `allValue: "__all__"` → Grafana sends bare `__all__` → Postgres parses
+  it as a column reference → `ERROR: column "__all__" does not exist
+  (SQLSTATE 42703)`.
+- `allValue: "'__all__'"` (with embedded single quotes) → Grafana sends
+  `'__all__'` literally → Postgres reads it as a string literal → works.
+
+So: when using the OR-clause guard pattern
+
+```sql
+WHERE ('__all__' IN (${var:singlequote}) OR id IN (${var:singlequote}))
+```
+
+the matching `allValue` must be `"'__all__'"`, **including the quotes
+in the JSON string**:
+
+```json
+{ "allValue": "'__all__'" }
+```
+
+This applies to any SQL filter using a query variable with a custom
+`allValue`. PromQL doesn't have the same issue because it's not
+identifier-vs-literal sensitive in the same way.
+
 ## Things to avoid (specific past mistakes)
 
 - **Adding a `datasource` template variable to a dashboard.** See rule 1
@@ -197,3 +229,12 @@ empty panels. Only n8n-main exposes the endpoint.
   foreground curl runs with `PW=""`. Put `&` on its own line, with
   `PF_PID=$!` after a real newline. (Generic bash gotcha but it cost
   this agent ~20 minutes here.)
+- **Passing markdown to `gh pr create --body "$(cat <<EOF…)"`.** The
+  single-quoted heredoc protects the body during `cat`, but the outer
+  `"$(…)"` re-introduces double-quoted parsing on cat's output. Any
+  backticks inside the markdown then get evaluated as command
+  substitution and the surrounding text disappears. Always use
+  `gh pr create --body-file <path>` instead.
+- **Setting a custom `allValue` without embedding quotes for SQL.**
+  See the dedicated section above — Grafana bypasses formatters for
+  `allValue`, so the value has to be SQL-safe as-is.
