@@ -130,7 +130,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "n8n_version_info",
+          "expr": "n8n_version_info{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -222,7 +222,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "n8n_nodejs_version_info",
+          "expr": "n8n_nodejs_version_info{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -318,7 +318,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "time() - n8n_process_start_time_seconds",
+          "expr": "time() - n8n_process_start_time_seconds{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -355,7 +355,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Instance role in cluster - 1 = Leader, 0 = Follower",
+      "description": "Instance role in cluster - 1 = Leader, 0 = Follower. Only published in queue/multi-main deployments; single-instance installs show N/A.",
       "fieldConfig": {
         "defaults": {
           "mappings": [
@@ -375,6 +375,7 @@
               "type": "value"
             }
           ],
+          "noValue": "N/A (single instance)",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -423,7 +424,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_instance_role_leader",
+          "expr": "n8n_instance_role_leader{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -505,7 +506,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_active_workflow_count",
+          "expr": "n8n_active_workflow_count{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -653,7 +654,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(n8n_process_cpu_seconds_total[$__rate_interval]) * 100",
+          "expr": "rate(n8n_process_cpu_seconds_total{instance=~\"$instance\"}[$__rate_interval]) * 100",
           "instant": false,
           "legendFormat": "Total CPU",
           "range": true,
@@ -665,7 +666,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(n8n_process_cpu_user_seconds_total[$__rate_interval]) * 100",
+          "expr": "rate(n8n_process_cpu_user_seconds_total{instance=~\"$instance\"}[$__rate_interval]) * 100",
           "hide": false,
           "instant": false,
           "legendFormat": "User CPU",
@@ -678,7 +679,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(n8n_process_cpu_system_seconds_total[$__rate_interval]) * 100",
+          "expr": "rate(n8n_process_cpu_system_seconds_total{instance=~\"$instance\"}[$__rate_interval]) * 100",
           "hide": false,
           "instant": false,
           "legendFormat": "System CPU",
@@ -792,7 +793,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_nodejs_eventloop_lag_p99_seconds",
+          "expr": "n8n_nodejs_eventloop_lag_p99_seconds{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "p99",
           "range": true,
@@ -804,7 +805,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_nodejs_eventloop_lag_p90_seconds",
+          "expr": "n8n_nodejs_eventloop_lag_p90_seconds{instance=~\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "p90",
@@ -817,7 +818,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_nodejs_eventloop_lag_p50_seconds",
+          "expr": "n8n_nodejs_eventloop_lag_p50_seconds{instance=~\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "p50",
@@ -939,7 +940,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_process_resident_memory_bytes",
+          "expr": "n8n_process_resident_memory_bytes{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "RSS",
           "range": true,
@@ -996,23 +997,11 @@
           },
           "mappings": [],
           "thresholds": {
-            "mode": "percentage",
+            "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "orange",
-                "value": 85
-              },
-              {
-                "color": "red",
-                "value": 95
               }
             ]
           },
@@ -1051,7 +1040,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_nodejs_heap_size_used_bytes",
+          "expr": "n8n_nodejs_heap_size_used_bytes{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "Used",
           "range": true,
@@ -1063,7 +1052,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_nodejs_heap_size_total_bytes",
+          "expr": "n8n_nodejs_heap_size_total_bytes{instance=~\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "Total (dynamic)",
@@ -1104,7 +1093,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -1140,7 +1129,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(n8n_nodejs_heap_size_used_bytes / n8n_nodejs_heap_size_total_bytes) * 100",
+          "expr": "(n8n_nodejs_heap_size_used_bytes{instance=~\"$instance\"} / n8n_nodejs_heap_size_total_bytes{instance=~\"$instance\"}) * 100",
           "instant": false,
           "legendFormat": "",
           "range": true,
@@ -1253,7 +1242,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(n8n_nodejs_gc_duration_seconds_sum{kind=\"minor\"}[$__rate_interval])",
+          "expr": "rate(n8n_nodejs_gc_duration_seconds_sum{kind=\"minor\",instance=~\"$instance\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "Minor GC",
           "range": true,
@@ -1265,7 +1254,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(n8n_nodejs_gc_duration_seconds_sum{kind=\"major\"}[$__rate_interval])",
+          "expr": "rate(n8n_nodejs_gc_duration_seconds_sum{kind=\"major\",instance=~\"$instance\"}[$__rate_interval])",
           "hide": false,
           "instant": false,
           "legendFormat": "Major GC",
@@ -1366,7 +1355,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_process_open_fds",
+          "expr": "n8n_process_open_fds{instance=~\"$instance\"}",
           "instant": false,
           "legendFormat": "Open FDs",
           "range": true,
@@ -1378,7 +1367,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "n8n_process_max_fds",
+          "expr": "n8n_process_max_fds{instance=~\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "Max FDs",
@@ -1397,11 +1386,31 @@
     "nodejs",
     "prometheus"
   ],
+  "refresh": "30s",
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "label": "Instance",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(n8n_version_info, instance)",
+        "query": { "qryType": 1, "query": "label_values(n8n_version_info, instance)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "hide": 0,
+        "sort": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "current": {},
+        "options": []
+      }
+    ]
   },
   "time": {
-    "from": "now-30m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
