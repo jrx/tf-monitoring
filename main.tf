@@ -52,8 +52,30 @@ resource "helm_release" "loki" {
   ]
 }
 
+# Alloy's River config lives in its own file so the chart's Helm `tpl`
+# pass doesn't try to interpret Alloy's `{{ ... }}` template syntax (used
+# inside stage.template blocks to derive facility/severity labels from
+# the syslog PRI field). The chart's configMap.create is set to false in
+# charts/alloy.yaml and points at this resource instead.
+resource "kubernetes_config_map" "alloy_config" {
+  metadata {
+    name      = "alloy-config"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"       = "alloy"
+      "app.kubernetes.io/instance"   = "alloy"
+      "app.kubernetes.io/component"  = "config"
+      "app.kubernetes.io/managed-by" = "Terraform"
+    }
+  }
+  data = {
+    "config.alloy" = file("${path.module}/charts/alloy-config.river")
+  }
+}
+
 # Grafana Alloy — replaces Promtail (EOL Feb 2025). Tails pod logs via the
-# Kubernetes API and forwards them to Loki.
+# Kubernetes API and forwards them to Loki, plus receives n8n Enterprise
+# Log-Streaming syslog events on port 1514 (see charts/alloy-config.river).
 resource "helm_release" "alloy" {
   name       = "alloy"
   repository = "https://grafana.github.io/helm-charts"
@@ -65,7 +87,21 @@ resource "helm_release" "alloy" {
     file("${path.module}/charts/alloy.yaml")
   ]
 
+  # Roll the DaemonSet whenever the River config changes. The chart's
+  # bundled config-reloader is disabled (see charts/alloy.yaml), so we
+  # need to nudge it ourselves.
+  #
+  # NOTE: the chart reads pod annotations from `controller.podAnnotations`,
+  # NOT top-level `podAnnotations`. Setting the top-level key is silently
+  # accepted by Helm but never reaches the pod template, so the DaemonSet
+  # would not roll on a standalone River edit.
+  set {
+    name  = "controller.podAnnotations.config\\.hash"
+    value = sha1(kubernetes_config_map.alloy_config.data["config.alloy"])
+  }
+
   depends_on = [
     helm_release.loki,
+    kubernetes_config_map.alloy_config,
   ]
 }

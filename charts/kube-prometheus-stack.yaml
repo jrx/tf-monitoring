@@ -118,6 +118,10 @@ grafana:
   additionalDataSources:
     - name: Loki
       type: loki
+      # Pin the UID so dashboards under ./dashboards/*.json can reference
+      # `"uid": "loki"` literally. Same convention as `n8n-postgres` below
+      # and the chart's built-in `prometheus` UID.
+      uid: loki
       access: proxy
       url: http://loki-gateway.monitoring.svc.cluster.local
       jsonData:
