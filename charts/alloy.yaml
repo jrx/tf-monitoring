@@ -1,60 +1,36 @@
 # Values for grafana/alloy.
 # Reference: https://github.com/grafana/alloy/blob/main/operations/helm/charts/alloy/values.yaml
 #
-# Alloy replaces Promtail (EOL Feb 2025). This config tails pod logs via the
-# Kubernetes API (no /var/log host mounts needed) and forwards them to Loki.
+# Alloy replaces Promtail (EOL Feb 2025). This deployment tails pod logs via
+# the Kubernetes API and receives n8n Enterprise Log-Streaming syslog events
+# on port 1514, then forwards both to Loki.
+#
+# The actual Alloy River config lives in charts/alloy-config.river and is
+# rendered into a ConfigMap by the `kubernetes_config_map.alloy_config`
+# Terraform resource. We deliberately bypass the chart's bundled
+# `configMap.create = true` path because that runs the content through
+# Helm's `tpl` first, which would mangle Alloy's own `{{ ... }}` template
+# syntax used by `stage.template` to derive facility/severity labels.
 
 alloy:
   configMap:
-    create: true
-    content: |-
-      logging {
-        level  = "info"
-        format = "logfmt"
-      }
+    # Don't let the chart create or template the ConfigMap. We supply our own
+    # to keep Alloy's `{{ ... }}` template syntax intact (Helm would otherwise
+    # try to evaluate it as a Helm template).
+    create: false
+    name:   alloy-config
+    key:    config.alloy
 
-      discovery.kubernetes "pods" {
-        role = "pod"
-      }
-
-      discovery.relabel "pod_logs" {
-        targets = discovery.kubernetes.pods.targets
-
-        rule {
-          source_labels = ["__meta_kubernetes_namespace"]
-          target_label  = "namespace"
-        }
-        rule {
-          source_labels = ["__meta_kubernetes_pod_name"]
-          target_label  = "pod"
-        }
-        rule {
-          source_labels = ["__meta_kubernetes_pod_container_name"]
-          target_label  = "container"
-        }
-        rule {
-          source_labels = ["__meta_kubernetes_pod_node_name"]
-          target_label  = "node"
-        }
-        rule {
-          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_name"]
-          separator     = "/"
-          target_label  = "job"
-        }
-      }
-
-      loki.source.kubernetes "pods" {
-        targets    = discovery.relabel.pod_logs.output
-        forward_to = [loki.write.default.receiver]
-      }
-
-      loki.write "default" {
-        endpoint {
-          url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
-
-          tenant_id = "1"
-        }
-      }
+  # Open the syslog listener port on the Alloy container. 1514 is the
+  # unprivileged conventional port for syslog and avoids needing
+  # CAP_NET_BIND_SERVICE just to bind <1024. The chart's bundled `alloy`
+  # Service publishes this port too, but consumers should prefer the
+  # dedicated `alloy-syslog` Service (see alloy-syslog.tf) for clarity.
+  extraPorts:
+    - name: syslog-tcp
+      port: 1514
+      targetPort: 1514
+      protocol: TCP
 
 controller:
   type: daemonset

@@ -1,0 +1,131 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+discovery.relabel "pod_logs" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_node_name"]
+    target_label  = "node"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_name"]
+    separator     = "/"
+    target_label  = "job"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pod_logs.output
+  forward_to = [loki.write.default.receiver]
+}
+
+// n8n Enterprise Log Streaming receiver. Listens for RFC 5424 syslog over
+// TCP from the n8n main pods and forwards into the same Loki pipeline as
+// pod-stdout. Events are tagged with source="n8n-log-streaming" so they're
+// queryable separately from container logs. Exposed via the `alloy-syslog`
+// ClusterIP Service in this namespace.
+//
+// `use_rfc5424_message = true` keeps the original frame (PRI + headers +
+// body) as the log line so the loki.process pipeline below can pull PRI
+// out and derive facility/severity labels. The pipeline then rewrites the
+// line back to just the message body, so downstream LogQL queries can
+// still use `| json` on it directly.
+loki.source.syslog "n8n_events" {
+  listener {
+    address             = "0.0.0.0:1514"
+    protocol            = "tcp"
+    syslog_format       = "rfc5424"
+    use_rfc5424_message = true
+    labels              = { source = "n8n-log-streaming" }
+  }
+  forward_to = [loki.process.n8n_syslog.receiver]
+}
+
+// Derive `facility` and `severity` as proper Loki labels from the syslog
+// PRI field (PRI = facility * 8 + severity, RFC 5424 §6.2.1).
+//
+// Why this dance instead of `loki.relabel` on `__syslog_message_*`: the
+// syslog source extracts those headers internally but strips every
+// `__`-prefixed label before forwarding, so the next component never sees
+// them. With `use_rfc5424_message = true` the whole frame is in the line
+// and we can extract PRI directly.
+//
+// Both labels are bounded:
+//   facility -> 24 values ("kern" .. "local7")
+//   severity ->  8 values ("emerg" .. "debug")
+// Higher-cardinality fields (hostname, app_name) are deliberately not lifted.
+loki.process "n8n_syslog" {
+  forward_to = [loki.write.default.receiver]
+
+  // Pull PRI digits + the rest of the frame out of the line.
+  // RFC 5424 frame: <PRI>VER TIMESTAMP HOST APP PROCID MSGID SD MSG
+  // n8n always emits `-` for SD-DATA so a single \S+ for SD is fine.
+  stage.regex {
+    expression = "^<(?P<pri>\\d+)>\\d+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+(?P<body>.*)$"
+  }
+
+  // PRI math via sprig (`div`, `mod` operate on ints).
+  stage.template {
+    source   = "facility_num"
+    template = "{{ div (.pri | int) 8 }}"
+  }
+  stage.template {
+    source   = "severity_num"
+    template = "{{ mod (.pri | int) 8 }}"
+  }
+
+  // RFC 5424 numeric -> name lookup via a sprig dict. Default to "unknown"
+  // for any out-of-range value (sprig's `index` returns "" on miss).
+  stage.template {
+    source   = "facility"
+    template = `{{- $m := dict "0" "kern" "1" "user" "2" "mail" "3" "daemon" "4" "auth" "5" "syslog" "6" "lpr" "7" "news" "8" "uucp" "9" "cron" "10" "authpriv" "11" "ftp" "12" "ntp" "13" "security" "14" "console" "15" "solaris-cron" "16" "local0" "17" "local1" "18" "local2" "19" "local3" "20" "local4" "21" "local5" "22" "local6" "23" "local7" -}}
+{{- $v := index $m .facility_num -}}{{- if $v -}}{{ $v }}{{- else -}}unknown{{- end -}}`
+  }
+  stage.template {
+    source   = "severity"
+    template = `{{- $m := dict "0" "emerg" "1" "alert" "2" "crit" "3" "err" "4" "warning" "5" "notice" "6" "info" "7" "debug" -}}
+{{- $v := index $m .severity_num -}}{{- if $v -}}{{ $v }}{{- else -}}unknown{{- end -}}`
+  }
+
+  // Promote derived values to Loki labels (low cardinality: 24 facility
+  // values, 8 severity values).
+  stage.labels {
+    values = {
+      severity = "",
+      facility = "",
+    }
+  }
+
+  // Rewrite the line back to just the message body so downstream
+  // `| json` queries keep working as before.
+  stage.output {
+    source = "body"
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+
+    tenant_id = "1"
+  }
+}
