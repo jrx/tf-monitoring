@@ -12,10 +12,13 @@ Into a single Kubernetes namespace (default: `monitoring`):
 |---|---|---|
 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics | `prometheus-community/kube-prometheus-stack` | Metrics, dashboards, alerting |
 | Loki (SingleBinary, filesystem) | `grafana/loki` | Log storage |
-| Grafana Alloy | `grafana/alloy` | Pod-log collection, ships to Loki |
+| Grafana Alloy | `grafana/alloy` | Pod-log collection + n8n Enterprise Log-Streaming syslog receiver; ships both to Loki |
 
-Grafana comes pre-configured with both Prometheus and Loki as datasources.
-Alloy and Grafana both authenticate to Loki with tenant `1`.
+Grafana comes pre-configured with Prometheus, Loki, and the n8n RDS Postgres
+database as datasources. Loki, Prometheus, and `n8n-postgres` datasource UIDs
+are pinned literally so dashboards under `./dashboards/*.json` can reference
+them without indirection. Alloy and Grafana both authenticate to Loki with
+tenant `1`.
 
 ### What Prometheus scrapes
 
@@ -66,22 +69,27 @@ Until then the scrape config is correct but produces zero samples.
 
 ```
 .
-├── versions.tf      # required_version + required_providers
-├── providers.tf     # aws / kubernetes / helm providers (exec-auth)
-├── data.tf          # remote_state + aws_eks_cluster lookup
-├── main.tf          # namespace + 3 helm_releases
-├── dashboards.tf    # ConfigMaps for every ./dashboards/*.json
-├── postgres-datasource.tf  # n8n RDS connection + Grafana password Secret
-├── variables.tf     # inputs (region, namespace, chart versions)
-├── outputs.tf       # namespace, cluster, Grafana service/secret names
+├── versions.tf              # required_version + required_providers
+├── providers.tf             # aws / kubernetes / helm providers (exec-auth)
+├── data.tf                  # remote_state + aws_eks_cluster lookup
+├── main.tf                  # namespace + 3 helm_releases + alloy-config CM
+├── dashboards.tf            # ConfigMaps for every ./dashboards/*.json
+├── postgres-datasource.tf   # n8n RDS connection + Grafana password Secret
+├── alloy-syslog.tf          # ClusterIP Service fronting Alloy's syslog listener
+├── variables.tf             # inputs (region, namespace, chart versions)
+├── outputs.tf               # namespace, cluster, Grafana service/secret names
 ├── charts/
 │   ├── kube-prometheus-stack.yaml
 │   ├── loki.yaml
-│   └── alloy.yaml
+│   ├── alloy.yaml           # Helm values only — points at alloy-config CM
+│   └── alloy-config.river   # Alloy River pipeline (logs + syslog + PRI parsing)
 ├── dashboards/
 │   ├── n8n-system-health.json
-│   └── n8n-workflow-execution-analytics.json
-└── backend.hcl      # TFC remote backend config
+│   ├── n8n-workflow-execution-analytics.json
+│   ├── n8n-governance.json
+│   ├── n8n-audit-events.json
+│   └── build-audit-dashboard.py   # generator for n8n-audit-events.json
+└── backend.hcl              # TFC remote backend config
 ```
 
 ## Inputs
@@ -90,7 +98,7 @@ Until then the scrape config is correct but produces zero samples.
 |---|---|---|---|
 | `aws_region` | AWS region of the target EKS cluster. | `string` | `eu-north-1` |
 | `monitoring_namespace` | Namespace to install everything into. | `string` | `monitoring` |
-| `kube_prometheus_stack_chart_version` | Pinned chart version. | `string` | `76.4.0` |
+| `kube_prometheus_stack_chart_version` | Pinned chart version. | `string` | `85.2.0` |
 | `loki_chart_version` | Pinned chart version. | `string` | `7.0.0` |
 | `alloy_chart_version` | Pinned chart version. | `string` | `1.8.1` |
 
@@ -215,6 +223,8 @@ into the file.
 |---|---|---|---|
 | `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), rev 1, `${DS_PROMETHEUS}` → `prometheus` | Prometheus | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
 | `n8n-workflow-execution-analytics.json` | [grafana.com/dashboards/24475](https://grafana.com/grafana/dashboards/24475-n8n-workflow-execution-analytics/), rev 1, `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` → `n8n-postgres` | PostgreSQL (n8n RDS) | Workflow execution analytics by querying the n8n DB directly (`execution_entity`, `workflow_entity`): success/error/crash counts, p50/p95/p99 duration, per-workflow stats, tag breakdowns. |
+| `n8n-governance.json` | hand-built | PostgreSQL (n8n RDS) | Workflow & quota governance: active vs inactive workflows, ownership, tag coverage, recently changed workflows. |
+| `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
 
 ## n8n PostgreSQL datasource
 
@@ -247,6 +257,70 @@ datasource plugin (datasource UID `n8n-postgres`). Wiring:
 >    workspace.
 > 3. Update `postgres-datasource.tf` to read from that Secrets Manager
 >    entry instead of `terraform_remote_state.n8n.outputs.db_password`.
+
+## n8n Enterprise Log Streaming
+
+The Alloy DaemonSet listens for RFC 5424 syslog over TCP on port 1514 in
+every pod, fronted by a dedicated `alloy-syslog` ClusterIP Service. n8n's
+Enterprise Log Streaming destination should be pointed at:
+
+| | |
+|---|---|
+| Host | `alloy-syslog.monitoring.svc.cluster.local` |
+| Port | `1514` |
+| Protocol | TCP |
+| Format | RFC 5424 |
+| Recommended facility | `local0` |
+
+The receiving pipeline lives in `charts/alloy-config.river`. It:
+
+1. Captures the full syslog frame as the log line (`use_rfc5424_message = true`).
+2. Pulls the PRI digits out via regex (`stage.regex`).
+3. Derives `facility` and `severity` from PRI using sprig math + a
+   numeric → RFC 5424 name lookup table (`stage.template`).
+4. Promotes both to real Loki labels (`stage.labels`).
+5. Rewrites the log line back to just the JSON message body so
+   downstream LogQL `| json` queries keep working (`stage.output`).
+
+**Why this dance instead of `loki.relabel` on `__syslog_message_*`:**
+Alloy 1.16's `loki.source.syslog` strips every `__`-prefixed label at
+the source boundary, so the next component never sees the auto-extracted
+facility / severity. PRI-from-line is the only path that survives.
+
+**Labels added to every syslog event:**
+
+| Label | Cardinality | Example values |
+|---|---|---|
+| `source` | 1 | `n8n-log-streaming` |
+| `facility` | 24 | `local0`, `user`, `daemon`, ... |
+| `severity` | 8 | `emerg`, `err`, `warning`, `info`, `debug`, ... |
+
+Sample LogQL queries (use Grafana's *Explore* tab against the Loki
+datasource):
+
+```logql
+# All n8n audit events
+{source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*`
+
+# Filter on severity
+{source="n8n-log-streaming", severity=~"warning|err|crit|alert|emerg"}
+
+# Cross-tab over the dashboard time range
+sum by (severity, facility) (count_over_time({source="n8n-log-streaming"}[$__range]))
+```
+
+**ConfigMap reload behaviour.** The Alloy chart's bundled
+config-reloader sidecar is intentionally disabled. Instead, the
+`helm_release.alloy` resource hashes `charts/alloy-config.river` and
+stamps the sha1 onto `controller.podAnnotations.config.hash`, so any
+edit to the River file rolls the DaemonSet on the next `terraform
+apply`.
+
+> ⚠️ **Network exposure note.** The cluster currently has no
+> `NetworkPolicy`. Any pod in any namespace can reach
+> `alloy-syslog:1514`. Acceptable for the sandbox; for production,
+> restrict ingress to the `n8n` namespace with a NetworkPolicy and
+> consider per-tenant routing inside the River pipeline.
 
 ## Operational notes
 
