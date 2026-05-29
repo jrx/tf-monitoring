@@ -754,7 +754,7 @@
     {
       "id": 14,
       "type": "row",
-      "title": "Workflow audit",
+      "title": "Audit activity by user",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -766,9 +766,9 @@
     },
     {
       "id": 15,
-      "type": "timeseries",
-      "title": "Workflow lifecycle",
-      "description": "created / updated / deleted / activated / deactivated / archived / executed.",
+      "type": "table",
+      "title": "Top users by audit activity",
+      "description": "Top 20 (user, event-name) pairs across all n8n.audit.* events. Click a column header to re-sort.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -785,74 +785,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` [$__interval]))",
-          "refId": "A",
-          "legendFormat": "{{eventName}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 1,
-            "fillOpacity": 12,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "axisPlacement": "auto"
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "last",
-            "max",
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "transparent": true
-    },
-    {
-      "id": 16,
-      "type": "table",
-      "title": "Most-touched workflows",
-      "description": "Workflows with the most audit activity in the selected range.",
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 32,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "topk(15, sum by (payload_workflowName, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` | payload_workflowName != `` [$__range])))",
+          "expr": "topk(20, sum by (payload__email, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | payload__email != `` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -921,7 +854,119 @@
               "Time": true
             },
             "renameByName": {
-              "payload_workflowName": "Workflow",
+              "payload__email": "User",
+              "eventName": "Event",
+              "Value": "Count"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Count",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Top users by credential / API / MFA action",
+      "description": "Same cross-tab restricted to credentials, API keys, and MFA events. Security-sensitive subset.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "topk(20, sum by (payload__email, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*` | payload__email != `` [$__range])))",
+          "queryType": "instant",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Count",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "payload__email": "User",
               "eventName": "Event",
               "Value": "Count"
             },
@@ -946,7 +991,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "Credentials, API keys, MFA",
+      "title": "Workflow audit",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -959,8 +1004,8 @@
     {
       "id": 18,
       "type": "timeseries",
-      "title": "Credential, API key & MFA events",
-      "description": "credentials.created / shared / updated / deleted, api.created / deleted, mfa.enabled / disabled.",
+      "title": "Workflow lifecycle",
+      "description": "created / updated / deleted / activated / deactivated / archived / executed.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -968,6 +1013,199 @@
       "gridPos": {
         "x": 0,
         "y": 41,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{eventName}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "axisPlacement": "auto"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transparent": true
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Most-touched workflows",
+      "description": "Workflows with the most audit activity, attributed to the user who triggered each event.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 41,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "topk(15, sum by (payload__email, payload_workflowName, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` | payload_workflowName != `` [$__range])))",
+          "queryType": "instant",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Count",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "payload__email": "User",
+              "payload_workflowName": "Workflow",
+              "eventName": "Event",
+              "Value": "Count"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Count",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Credentials, API keys, MFA",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Credential, API key & MFA events",
+      "description": "credentials.created / shared / updated / deleted, api.created / deleted, mfa.enabled / disabled. For per-user breakdown see 'Top users by credential / API / MFA action' above.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -1024,7 +1262,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 22,
       "type": "timeseries",
       "title": "Variables & community packages",
       "description": "variable.created / updated / deleted, package.installed / updated / deleted.",
@@ -1034,7 +1272,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 41,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -1091,20 +1329,20 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 23,
       "type": "row",
       "title": "Execution data access",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 49,
+        "y": 58,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 21,
+      "id": 24,
       "type": "timeseries",
       "title": "Execution data reveals",
       "description": "When users reveal sensitive execution data in the editor.",
@@ -1114,7 +1352,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1171,7 +1409,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 25,
       "type": "table",
       "title": "Recent execution-data reveals",
       "description": "Who revealed which execution payload in the selected range.",
@@ -1181,7 +1419,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 50,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1284,30 +1522,30 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 26,
       "type": "row",
       "title": "Raw audit stream",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 58,
+        "y": 67,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 24,
+      "id": 27,
       "type": "logs",
       "title": "Recent audit events",
-      "description": "Live tail of all n8n.audit.* events with severity badge. Click a line to see the full JSON payload.",
+      "description": "Live tail of all n8n.audit.* events. Each line begins with the actor (email, user:UUID fallback, or '(no user)'), then severity and event name, then any contextual identifiers (workflow / credential / execution / instance role).",
       "datasource": {
         "type": "loki",
         "uid": "loki"
       },
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 68,
         "w": 24,
         "h": 12
       },
@@ -1317,7 +1555,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | line_format \"[{{.severity}}] {{.eventName}}{{if .payload__email}}  email={{.payload__email}}{{end}}{{if .payload_workflowName}}  workflow=\\\"{{.payload_workflowName}}\\\"{{end}}{{if .payload_credentialName}}  credential=\\\"{{.payload_credentialName}}\\\"{{end}}{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}\"",
+          "expr": "{source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | line_format \"{{if .payload__email}}{{.payload__email}}{{else if .payload_userId}}user:{{.payload_userId}}{{else}}(no user){{end}}  [{{.severity}}] {{.eventName}}{{if .payload_workflowName}}  workflow=\\\"{{.payload_workflowName}}\\\"{{end}}{{if .payload_credentialName}}  credential=\\\"{{.payload_credentialName}}\\\"{{end}}{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}\"",
           "refId": "A",
           "queryType": "range"
         }

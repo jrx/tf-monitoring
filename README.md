@@ -224,7 +224,16 @@ into the file.
 | `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), rev 1, `${DS_PROMETHEUS}` → `prometheus` | Prometheus | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
 | `n8n-workflow-execution-analytics.json` | [grafana.com/dashboards/24475](https://grafana.com/grafana/dashboards/24475-n8n-workflow-execution-analytics/), rev 1, `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` → `n8n-postgres` | PostgreSQL (n8n RDS) | Workflow execution analytics by querying the n8n DB directly (`execution_entity`, `workflow_entity`): success/error/crash counts, p50/p95/p99 duration, per-workflow stats, tag breakdowns. |
 | `n8n-governance.json` | hand-built | PostgreSQL (n8n RDS) | Workflow & quota governance: active vs inactive workflows, ownership, tag coverage, recently changed workflows. |
-| `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
+| `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
+
+> **Note on user attribution.** The per-user panels group by `payload__email`
+> — the `| json`-flattened form of the audit event's `payload._email` field.
+> For most events this is the **actor** (the user who performed the action),
+> but some `n8n.audit.user.*` events (e.g. `user.deleted`, `user.invited`)
+> may carry the **subject** user's email instead. Events with no
+> `payload._email` (some service-account / public-API flows) are excluded
+> from the "Top users by …" tables but still appear in the raw-stream panel,
+> tagged `(no user)`.
 
 ## n8n PostgreSQL datasource
 
@@ -307,6 +316,9 @@ datasource):
 
 # Cross-tab over the dashboard time range
 sum by (severity, facility) (count_over_time({source="n8n-log-streaming"}[$__range]))
+
+# Top users by audit activity (actor attribution; excludes events with no _email)
+topk(20, sum by (payload__email, eventName) (count_over_time({source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*` | payload__email != `` [$__range])))
 ```
 
 **ConfigMap reload behaviour.** The Alloy chart's bundled
