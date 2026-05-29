@@ -324,22 +324,56 @@ panels.append(table(
     sort_by="Events",
 ))
 
+# === Audit activity by user ===
+# Cross-tabulates audit events by actor (payload._email -> payload__email).
+# Filters payload__email != "" so only attributed events show; the rare
+# events without an email are surfaced via the "Recent audit events" log
+# panel which falls back to user:UUID or "(no user)".
+panels.append(row("Audit activity by user", 31))
+panels.append(table(
+    "Top users by audit activity",
+    'topk(20, sum by (payload__email, eventName) '
+    f'(count_over_time({AUDIT_FILTER} | payload__email != `` [$__range])))',
+    x=0, y=32, w=12, h=8,
+    description="Top 20 (user, event-name) pairs across all n8n.audit.* events. Click a column header to re-sort.",
+    rename={
+        "payload__email": "User",
+        "eventName": "Event",
+        "Value": "Count",
+    },
+    sort_by="Count",
+))
+panels.append(table(
+    "Top users by credential / API / MFA action",
+    'topk(20, sum by (payload__email, eventName) '
+    f'(count_over_time({CRED_FILTER} | payload__email != `` [$__range])))',
+    x=12, y=32, w=12, h=8,
+    description="Same cross-tab restricted to credentials, API keys, and MFA events. Security-sensitive subset.",
+    rename={
+        "payload__email": "User",
+        "eventName": "Event",
+        "Value": "Count",
+    },
+    sort_by="Count",
+))
+
 # === Workflow audit ===
-panels.append(row("Workflow audit", 31))
+panels.append(row("Workflow audit", 40))
 panels.append(timeseries(
     "Workflow lifecycle",
     f"sum by (eventName) (count_over_time({WF_FILTER} [$__interval]))",
-    x=0, y=32, w=12, h=8,
+    x=0, y=41, w=12, h=8,
     legend_format="{{eventName}}",
     description="created / updated / deleted / activated / deactivated / archived / executed.",
 ))
 panels.append(table(
     "Most-touched workflows",
-    'topk(15, sum by (payload_workflowName, eventName) '
+    'topk(15, sum by (payload__email, payload_workflowName, eventName) '
     f'(count_over_time({WF_FILTER} | payload_workflowName != `` [$__range])))',
-    x=12, y=32, w=12, h=8,
-    description="Workflows with the most audit activity in the selected range.",
+    x=12, y=41, w=12, h=8,
+    description="Workflows with the most audit activity, attributed to the user who triggered each event.",
     rename={
+        "payload__email": "User",
         "payload_workflowName": "Workflow",
         "eventName": "Event",
         "Value": "Count",
@@ -348,28 +382,28 @@ panels.append(table(
 ))
 
 # === Security ===
-panels.append(row("Credentials, API keys, MFA", 40))
+panels.append(row("Credentials, API keys, MFA", 49))
 panels.append(timeseries(
     "Credential, API key & MFA events",
     f"sum by (eventName) (count_over_time({CRED_FILTER} [$__interval]))",
-    x=0, y=41, w=12, h=8,
+    x=0, y=50, w=12, h=8,
     legend_format="{{eventName}}",
-    description="credentials.created / shared / updated / deleted, api.created / deleted, mfa.enabled / disabled.",
+    description="credentials.created / shared / updated / deleted, api.created / deleted, mfa.enabled / disabled. For per-user breakdown see 'Top users by credential / API / MFA action' above.",
 ))
 panels.append(timeseries(
     "Variables & community packages",
     f"sum by (eventName) (count_over_time({VARPKG_FILTER} [$__interval]))",
-    x=12, y=41, w=12, h=8,
+    x=12, y=50, w=12, h=8,
     legend_format="{{eventName}}",
     description="variable.created / updated / deleted, package.installed / updated / deleted.",
 ))
 
 # === Execution data reveals ===
-panels.append(row("Execution data access", 49))
+panels.append(row("Execution data access", 58))
 panels.append(timeseries(
     "Execution data reveals",
     f"sum by (eventName) (count_over_time({EXEC_FILTER} [$__interval]))",
-    x=0, y=50, w=12, h=8,
+    x=0, y=59, w=12, h=8,
     legend_format="{{eventName}}",
     description="When users reveal sensitive execution data in the editor.",
 ))
@@ -377,7 +411,7 @@ panels.append(table(
     "Recent execution-data reveals",
     'topk(20, sum by (payload__email, payload_userId, payload_executionId) '
     f'(count_over_time({EXEC_FILTER} | payload_executionId != `` [$__range])))',
-    x=12, y=50, w=12, h=8,
+    x=12, y=59, w=12, h=8,
     description="Who revealed which execution payload in the selected range.",
     rename={
         "payload__email": "Email",
@@ -389,19 +423,23 @@ panels.append(table(
 ))
 
 # === Raw events ===
-panels.append(row("Raw audit stream", 58))
+panels.append(row("Raw audit stream", 67))
 panels.append(logs_panel(
     "Recent audit events",
     '{source="n8n-log-streaming"} | json '
     '| eventName=~`n8n\\.audit\\..*` '
-    '| line_format "[{{.severity}}] {{.eventName}}'
-    '{{if .payload__email}}  email={{.payload__email}}{{end}}'
+    # Actor first, then severity + eventName, then context fields.
+    # Falls back from email -> user:UUID -> "(no user)" so every line is
+    # attributable even for service-account-style events.
+    '| line_format "{{if .payload__email}}{{.payload__email}}'
+    '{{else if .payload_userId}}user:{{.payload_userId}}'
+    '{{else}}(no user){{end}}  [{{.severity}}] {{.eventName}}'
     '{{if .payload_workflowName}}  workflow=\\"{{.payload_workflowName}}\\"{{end}}'
     '{{if .payload_credentialName}}  credential=\\"{{.payload_credentialName}}\\"{{end}}'
     '{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}'
     '{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}"',
-    x=0, y=59, w=24, h=12,
-    description="Live tail of all n8n.audit.* events with severity badge. Click a line to see the full JSON payload.",
+    x=0, y=68, w=24, h=12,
+    description="Live tail of all n8n.audit.* events. Each line begins with the actor (email, user:UUID fallback, or '(no user)'), then severity and event name, then any contextual identifiers (workflow / credential / execution / instance role).",
 ))
 
 
