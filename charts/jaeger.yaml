@@ -14,6 +14,16 @@
 # `jaeger-otlp` Service (jaeger.tf) and the README "OpenTelemetry tracing"
 # section. The Grafana Jaeger datasource (uid: jaeger) talks to the query API
 # on 16686 — wired in charts/kube-prometheus-stack.yaml.
+#
+# SPAN METRICS: the spanmetrics connector derives RED metrics from every span
+# and the prometheus exporter publishes them on :8889 (the chart's pre-wired
+# `span-metrics` Service port). Prometheus scrapes that endpoint via the
+# `jaeger-spanmetrics` ServiceMonitor in charts/kube-prometheus-stack.yaml,
+# and the n8n-traces dashboard renders them. This is what makes trace-derived
+# rate/error/latency dashboards possible — Jaeger's in-memory trace store has
+# no metrics backend of its own. Jaeger's own "Monitor" tab is intentionally
+# NOT enabled (would need metric_backends + monitor.menuEnabled); the Grafana
+# dashboard is the consumer instead.
 
 jaeger:
   enabled: true
@@ -39,7 +49,13 @@ userconfig:
       traces:
         receivers: [otlp]
         processors: [batch]
-        exporters: [jaeger_storage_exporter]
+        # Fan every span to both the trace store AND the span_metrics connector.
+        exporters: [jaeger_storage_exporter, span_metrics]
+      # span_metrics connector emits RED metrics into this pipeline; the
+      # prometheus exporter publishes them on :8889 for Prometheus to scrape.
+      metrics/spanmetrics:
+        receivers: [span_metrics]
+        exporters: [prometheus]
     telemetry:
       # Array-of-{name,value} form. Jaeger v2 (OTel Collector) deprecated the
       # legacy inline map (`resource: {service.name: jaeger}`) and logs a
@@ -73,9 +89,28 @@ userconfig:
           endpoint: 0.0.0.0:4318
   processors:
     batch: {}
+  connectors:
+    # Derive RED metrics from spans. Beyond the always-on default dimensions
+    # (service_name, span_name, span_kind, status_code), add a small set of
+    # n8n span attributes so metrics can be sliced per workflow / execution
+    # status. Keep this list short — every dimension is a Prometheus label
+    # and multiplies series cardinality.
+    #
+    # Component type is `span_metrics` (the `spanmetrics` alias is deprecated
+    # in Jaeger v2's collector). Metric names are unaffected — they come from
+    # the connector's `traces.span.metrics` namespace -> traces_span_metrics_*.
+    span_metrics:
+      dimensions:
+        - name: n8n.workflow.name
+        - name: n8n.execution.status
   exporters:
     jaeger_storage_exporter:
       trace_storage: primary_store
+    # Prometheus scrape endpoint for the spanmetrics output (chart's
+    # `span-metrics` Service port). Scraped by the jaeger-spanmetrics
+    # ServiceMonitor.
+    prometheus:
+      endpoint: 0.0.0.0:8889
 
 storage:
   type: memory
