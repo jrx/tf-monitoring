@@ -41,8 +41,14 @@ userconfig:
         processors: [batch]
         exporters: [jaeger_storage_exporter]
     telemetry:
+      # Array-of-{name,value} form. Jaeger v2 (OTel Collector) deprecated the
+      # legacy inline map (`resource: {service.name: jaeger}`) and logs a
+      # warning for it at startup. This only labels Jaeger's OWN self-telemetry
+      # — it does not affect n8n's exported spans.
       resource:
-        service.name: jaeger
+        attributes:
+          - name: service.name
+            value: jaeger
   extensions:
     healthcheckv2:
       use_v2: true

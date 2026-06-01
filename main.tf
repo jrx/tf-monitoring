@@ -92,6 +92,21 @@ resource "helm_release" "jaeger" {
     file("${path.module}/charts/jaeger.yaml")
   ]
 
+  # The Jaeger chart writes the pipeline to a `user-config` ConfigMap but puts
+  # NO checksum annotation on the pod template, so editing charts/jaeger.yaml
+  # updates the ConfigMap without rolling the Deployment — the running process
+  # keeps the old config (same trap as Alloy below). Stamp a hash of the values
+  # file into a throwaway env var to force a roll on config change. The
+  # all-in-one component exposes `extraEnv` (it has no podAnnotations/podLabels).
+  set {
+    name  = "jaeger.extraEnv[0].name"
+    value = "N8N_JAEGER_CONFIG_HASH"
+  }
+  set {
+    name  = "jaeger.extraEnv[0].value"
+    value = sha1(file("${path.module}/charts/jaeger.yaml"))
+  }
+
   depends_on = [
     kubernetes_namespace.monitoring,
   ]
