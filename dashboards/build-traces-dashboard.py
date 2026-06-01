@@ -288,7 +288,13 @@ dashboard = {
                    "For individual trace search, use Explore → Jaeger.",
     "tags": ["n8n", "traces", "otel", "prometheus"],
     "timezone": "browser", "schemaVersion": 42, "version": 1,
-    "refresh": "30s", "time": {"from": "now-6h", "to": "now"},
+    # Live/demo view: short window + fast refresh so fired traffic shows up
+    # quickly and the cold-start spike ages out. Widen per-session as needed.
+    "refresh": "10s", "time": {"from": "now-30m", "to": "now"},
+    # Cross-dashboard nav: dropdown of every dashboard tagged "n8n".
+    "links": [{"asDropdown": True, "icon": "external link", "includeVars": False,
+               "keepTime": True, "tags": ["n8n"], "targetBlank": False,
+               "title": "n8n dashboards", "type": "dashboards"}],
     "timepicker": {}, "templating": {"list": templating},
     "annotations": {"list": []}, "preload": False, "weekStart": "",
     "graphTooltip": 1, "panels": panels,

@@ -459,6 +459,10 @@ dashboard = {
     "annotations": {"list": []},
     "preload": False,
     "weekStart": "",
+    # Cross-dashboard nav: dropdown of every dashboard tagged "n8n".
+    "links": [{"asDropdown": True, "icon": "external link", "includeVars": False,
+               "keepTime": True, "tags": ["n8n"], "targetBlank": False,
+               "title": "n8n dashboards", "type": "dashboards"}],
     "panels": panels,
 }
 
