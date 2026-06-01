@@ -25,6 +25,20 @@
   },
   "preload": false,
   "weekStart": "",
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "n8n"
+      ],
+      "targetBlank": false,
+      "title": "n8n dashboards",
+      "type": "dashboards"
+    }
+  ],
   "panels": [
     {
       "id": 1,

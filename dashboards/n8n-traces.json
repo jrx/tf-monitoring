@@ -11,11 +11,25 @@
   "timezone": "browser",
   "schemaVersion": 42,
   "version": 1,
-  "refresh": "30s",
+  "refresh": "10s",
   "time": {
-    "from": "now-6h",
+    "from": "now-30m",
     "to": "now"
   },
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "n8n"
+      ],
+      "targetBlank": false,
+      "title": "n8n dashboards",
+      "type": "dashboards"
+    }
+  ],
   "timepicker": {},
   "templating": {
     "list": [
