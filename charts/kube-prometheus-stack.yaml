@@ -147,6 +147,26 @@ grafana:
         postgresVersion: 1500
       secureJsonData:
         password: $N8N_POSTGRES_PASSWORD
+    - name: Jaeger
+      type: jaeger
+      # Pinned UID so anything referencing this datasource (trace links,
+      # future dashboards) can use `jaeger` literally — same convention as
+      # loki / prometheus / n8n-postgres above.
+      uid: jaeger
+      access: proxy
+      # Jaeger all-in-one query API/UI (see charts/jaeger.yaml, jaeger.tf).
+      url: http://jaeger.monitoring.svc.cluster.local:16686
+      jsonData:
+        # Coarse span -> logs jump: opens the Loki datasource over the span's
+        # time window (+/- shift). n8n spans and n8n logs don't share an
+        # indexed correlation key, so this is time-range based rather than
+        # exact-match; still handy for "what was this execution logging?".
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-1h"
+          spanEndTimeShift: "1h"
+          filterByTraceID: false
+          filterBySpanID: false
 
   resources:
     requests:

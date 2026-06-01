@@ -73,6 +73,30 @@ resource "kubernetes_config_map" "alloy_config" {
   }
 }
 
+# Jaeger — all-in-one, in-memory (Jaeger v2). Receives OpenTelemetry traces
+# from n8n over OTLP (4317 gRPC / 4318 HTTP) and serves the query API/UI on
+# 16686. In-memory storage means traces are lost on pod restart — same
+# sandbox posture as Loki's filesystem storage above. n8n is pointed at the
+# dedicated `jaeger-otlp` Service (jaeger.tf); Grafana queries 16686 via the
+# Jaeger datasource (uid: jaeger) provisioned in the kube-prometheus-stack
+# values. Enabling tracing on n8n itself (N8N_OTEL_ENABLED + endpoint) is a
+# change in the n8n TFC workspace, not here — see the README.
+resource "helm_release" "jaeger" {
+  name       = "jaeger"
+  repository = "https://jaegertracing.github.io/helm-charts"
+  chart      = "jaeger"
+  version    = var.jaeger_chart_version
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  values = [
+    file("${path.module}/charts/jaeger.yaml")
+  ]
+
+  depends_on = [
+    kubernetes_namespace.monitoring,
+  ]
+}
+
 # Grafana Alloy — replaces Promtail (EOL Feb 2025). Tails pod logs via the
 # Kubernetes API and forwards them to Loki, plus receives n8n Enterprise
 # Log-Streaming syslog events on port 1514 (see charts/alloy-config.river).

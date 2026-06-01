@@ -23,3 +23,11 @@ output "grafana_service_name" {
   description = "Kubernetes Service exposing the Grafana UI (in monitoring_namespace)."
   value       = "kube-prometheus-stack-grafana"
 }
+
+# Base URL for n8n's N8N_OTEL_EXPORTER_OTLP_ENDPOINT (n8n appends /v1/traces).
+# Set N8N_OTEL_ENABLED=true and this endpoint on the n8n main/worker/webhook
+# pods in the n8n TFC workspace to start exporting traces to Jaeger.
+output "jaeger_otlp_http_endpoint" {
+  description = "In-cluster OTLP/HTTP base URL n8n should export traces to (append /v1/traces)."
+  value       = "http://${kubernetes_service.jaeger_otlp.metadata[0].name}.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local:4318"
+}

@@ -1,0 +1,75 @@
+# Values for jaegertracing/jaeger — all-in-one, in-memory.
+#
+# This runs the single Jaeger v2 binary (a thin OpenTelemetry Collector
+# distribution) as one Deployment. It receives OTLP from n8n and serves the
+# Jaeger query API/UI from the same pod.
+#
+# SANDBOX ONLY: traces are held in a bounded in-memory ring buffer
+# (max_traces below) and are lost on pod restart — the same posture as Loki's
+# filesystem storage in this module. For anything beyond a sandbox, switch the
+# jaeger_storage backend to Badger (add a PVC) or an external store
+# (Elasticsearch / Cassandra) and review retention.
+#
+# n8n sends traces here over OTLP HTTP on 4318; see the dedicated
+# `jaeger-otlp` Service (jaeger.tf) and the README "OpenTelemetry tracing"
+# section. The Grafana Jaeger datasource (uid: jaeger) talks to the query API
+# on 16686 — wired in charts/kube-prometheus-stack.yaml.
+
+jaeger:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# Replace the chart's default (Elasticsearch-backed) Jaeger v2 pipeline with a
+# minimal in-memory one: OTLP in -> batch -> in-memory trace store, queried by
+# the bundled jaeger_query extension.
+#
+# Keys mirror the upstream Jaeger v2 all-in-one config
+# (github.com/jaegertracing/jaeger/tree/main/cmd/jaeger). `storage.type: memory`
+# below keeps the chart's maintenance jobs (ES index cleaner etc.) disabled.
+userconfig:
+  service:
+    extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [jaeger_storage_exporter]
+    telemetry:
+      resource:
+        service.name: jaeger
+  extensions:
+    healthcheckv2:
+      use_v2: true
+      http:
+        endpoint: 0.0.0.0:13133
+    jaeger_query:
+      storage:
+        traces: primary_store
+    jaeger_storage:
+      backends:
+        primary_store:
+          memory:
+            # Bounded ring buffer. ~100k spans is plenty for a sandbox; raise
+            # if you need a deeper history, but remember it's all in RAM.
+            max_traces: 100000
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    batch: {}
+  exporters:
+    jaeger_storage_exporter:
+      trace_storage: primary_store
+
+storage:
+  type: memory
