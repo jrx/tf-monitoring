@@ -116,6 +116,11 @@ def timeseries(title, targets, x, y, w, h, *, unit="short", desc="",
 def table(title, targets, x, y, w, h, *, desc="", transformations=None,
           overrides=None, sort_by=None):
     targets = _seq_refids(targets)
+    # Table panels render instant vectors most reliably with format=table
+    # (drops the Time column at source; the merge/organize transform then
+    # surfaces label columns + Value #A/#B cleanly).
+    for t in targets:
+        t["format"] = "table"
     return {
         "id": nid(), "type": "table", "title": title, "description": desc,
         "datasource": PROM, "gridPos": grid(x, y, w, h),

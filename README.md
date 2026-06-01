@@ -418,6 +418,13 @@ in `charts/jaeger.yaml` — keep that list short; each is a Prometheus label).
 Select on `service_name`, not `job` (Prometheus rewrites the exposed `job` to
 `exported_job` on scrape).
 
+> ⚠️ **Cardinality.** `n8n_workflow_name` is an *unbounded* dimension — RED
+> series scale as roughly `workflow_count × span_name × status_code`. That's
+> fine for a sandbox, but on an instance with thousands of workflows it will
+> inflate Prometheus series count. For large installs, drop
+> `n8n.workflow.name` from the connector dimensions (fall back to per-workflow
+> drill-down in Explore → Jaeger) or otherwise cap it.
+
 Jaeger's own "Monitor" tab is intentionally not enabled (it would need
 `metric_backends` + `monitor.menuEnabled`); the Grafana dashboard is the
 consumer instead.

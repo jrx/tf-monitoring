@@ -722,7 +722,8 @@
           "editorMode": "code",
           "range": false,
           "instant": true,
-          "legendFormat": ""
+          "legendFormat": "",
+          "format": "table"
         },
         {
           "datasource": {
@@ -734,7 +735,8 @@
           "editorMode": "code",
           "range": false,
           "instant": true,
-          "legendFormat": ""
+          "legendFormat": "",
+          "format": "table"
         }
       ],
       "fieldConfig": {
