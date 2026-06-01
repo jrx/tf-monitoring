@@ -13,7 +13,7 @@ Into a single Kubernetes namespace (default: `monitoring`):
 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics | `prometheus-community/kube-prometheus-stack` | Metrics, dashboards, alerting |
 | Loki (SingleBinary, filesystem) | `grafana/loki` | Log storage |
 | Grafana Alloy | `grafana/alloy` | Pod-log collection + n8n Enterprise Log-Streaming syslog receiver; ships both to Loki |
-| Jaeger (all-in-one, in-memory) | `jaegertracing/jaeger` | OpenTelemetry trace backend for n8n workflow/node spans; OTLP receiver + query UI |
+| Jaeger (all-in-one, in-memory) | `jaegertracing/jaeger` | OpenTelemetry trace backend for n8n workflow/node spans; OTLP receiver + query UI; spanmetrics connector publishes RED metrics to Prometheus |
 
 Grafana comes pre-configured with Prometheus, Loki, Jaeger, and the n8n RDS
 Postgres database as datasources. Loki, Prometheus, Jaeger, and `n8n-postgres`
@@ -92,7 +92,9 @@ Until then the scrape config is correct but produces zero samples.
 │   ├── n8n-workflow-execution-analytics.json
 │   ├── n8n-governance.json
 │   ├── n8n-audit-events.json
-│   └── build-audit-dashboard.py   # generator for n8n-audit-events.json
+│   ├── build-audit-dashboard.py   # generator for n8n-audit-events.json
+│   ├── n8n-traces.json
+│   └── build-traces-dashboard.py  # generator for n8n-traces.json
 └── backend.hcl              # TFC remote backend config
 ```
 
@@ -231,6 +233,7 @@ into the file.
 | `n8n-workflow-execution-analytics.json` | [grafana.com/dashboards/24475](https://grafana.com/grafana/dashboards/24475-n8n-workflow-execution-analytics/), rev 1, `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` → `n8n-postgres` | PostgreSQL (n8n RDS) | Workflow execution analytics by querying the n8n DB directly (`execution_entity`, `workflow_entity`): success/error/crash counts, p50/p95/p99 duration, per-workflow stats, tag breakdowns. |
 | `n8n-governance.json` | hand-built | PostgreSQL (n8n RDS) | Workflow & quota governance: active vs inactive workflows, ownership, tag coverage, recently changed workflows. |
 | `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
+| `n8n-traces.json` | hand-built via `dashboards/build-traces-dashboard.py` | Prometheus | RED metrics (rate / errors / p50-p95-p99 duration) derived from n8n's OpenTelemetry spans by the Jaeger spanmetrics connector, scraped into Prometheus. Per-workflow breakdown + span-type split. Requires OpenTelemetry tracing enabled (see below); empty until then. For individual trace search use Explore → Jaeger. |
 
 > **Note on user attribution.** The per-user panels group by `payload__email`
 > — the `| json`-flattened form of the audit event's `payload._email` field.
@@ -392,6 +395,39 @@ Restart n8n. Run a workflow, then look in Jaeger (service `n8n`) or Grafana's
 *Explore* → Jaeger datasource. See the
 [n8n OpenTelemetry env-var reference](https://docs.n8n.io/hosting/configuration/environment-variables/opentelemetry/)
 for the full list.
+
+### Span metrics & the RED dashboard
+
+Individual traces live in Jaeger (Explore-oriented), but Jaeger's in-memory
+store has no metrics backend — so trend dashboards come from a different path.
+The Jaeger **spanmetrics connector** (`charts/jaeger.yaml`) derives RED
+metrics from every span and its `prometheus` exporter publishes them on the
+container's `:8889`, surfaced on the chart's `jaeger` Service as the
+`span-metrics` port. The **`jaeger-spanmetrics` ServiceMonitor**
+(`charts/kube-prometheus-stack.yaml`) scrapes that into the
+kube-prometheus-stack Prometheus, and the **`n8n-traces` dashboard** renders
+it (rate / error % / p50-p95-p99 latency, per-workflow breakdown).
+
+Because the data lands in Prometheus, that dashboard reads the **prometheus**
+datasource — not the Jaeger one. The emitted series are
+`traces_span_metrics_calls_total` and
+`traces_span_metrics_duration_milliseconds_*`, labelled `service_name`,
+`span_name`, `status_code`, plus the n8n dimensions `n8n_workflow_name` and
+`n8n_execution_status` (configured under `connectors.span_metrics.dimensions`
+in `charts/jaeger.yaml` — keep that list short; each is a Prometheus label).
+Select on `service_name`, not `job` (Prometheus rewrites the exposed `job` to
+`exported_job` on scrape).
+
+> ⚠️ **Cardinality.** `n8n_workflow_name` is an *unbounded* dimension — RED
+> series scale as roughly `workflow_count × span_name × status_code`. That's
+> fine for a sandbox, but on an instance with thousands of workflows it will
+> inflate Prometheus series count. For large installs, drop
+> `n8n.workflow.name` from the connector dimensions (fall back to per-workflow
+> drill-down in Explore → Jaeger) or otherwise cap it.
+
+Jaeger's own "Monitor" tab is intentionally not enabled (it would need
+`metric_backends` + `monitor.menuEnabled`); the Grafana dashboard is the
+consumer instead.
 
 > ⚠️ **Sandbox only.** Jaeger here uses **in-memory** storage (bounded ring
 > buffer, `max_traces` in `charts/jaeger.yaml`) — traces are lost on pod

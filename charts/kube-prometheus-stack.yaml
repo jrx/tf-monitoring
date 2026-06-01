@@ -84,6 +84,25 @@ prometheus:
           interval: 30s
           scrapeTimeout: 10s
 
+    # RED metrics derived from n8n's OpenTelemetry spans by the Jaeger
+    # spanmetrics connector (see charts/jaeger.yaml). The connector's
+    # prometheus exporter listens on the container's 8889, surfaced on the
+    # chart's `jaeger` Service as the `span-metrics` port. These series feed
+    # the n8n-traces dashboard. Empty until n8n tracing is enabled upstream.
+    - name: jaeger-spanmetrics
+      namespaceSelector:
+        matchNames:
+          - monitoring
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: jaeger
+          app.kubernetes.io/name: jaeger
+      endpoints:
+        - port: span-metrics
+          path: /metrics
+          interval: 30s
+          scrapeTimeout: 10s
+
 alertmanager:
   alertmanagerSpec:
     resources:
