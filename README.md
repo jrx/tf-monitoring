@@ -367,21 +367,26 @@ clarity.
 ### Turn tracing on in n8n (n8n TFC workspace)
 
 n8n emits over **OTLP HTTP/protobuf** and appends `/v1/traces` to the
-endpoint, so `N8N_OTEL_EXPORTER_OTLP_ENDPOINT` is the **base URL**. Set these
-on every n8n instance you want traced — `main`, `worker`, **and** `webhook`
-(in [queue mode](https://docs.n8n.io/hosting/scaling/queue-mode/) the vars
-must be on all instances; trace context propagates between them):
+endpoint, so the endpoint is the **base URL**. The vars must be set on every
+n8n instance you want traced — `main`, `worker`, **and** `webhook` (in
+[queue mode](https://docs.n8n.io/hosting/scaling/queue-mode/) trace context
+propagates between them, so all instances need them).
 
-```yaml
-main:        # repeat under worker: and webhook: in the n8n chart values
-  extraEnv:
-    N8N_OTEL_ENABLED: "true"
-    N8N_OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-otlp.monitoring.svc.cluster.local:4318"
-    # Optional: workflow-level spans only (drop per-node spans)
-    # N8N_OTEL_TRACES_INCLUDE_NODE_SPANS: "false"
-    # Optional: sample a fraction of traces on busy instances (0..1)
-    # N8N_OTEL_TRACES_SAMPLE_RATE: "0.25"
+The n8n TFC module exposes typed inputs for this — prefer them over a
+hand-rolled `extraEnv` map (the module fans the vars out to all instances):
+
+```hcl
+n8n_otel_enabled                = true
+n8n_otel_exporter_otlp_endpoint = "http://jaeger-otlp.monitoring.svc.cluster.local:4318"
+# Optional tuning (leave unset to use n8n's defaults):
+# n8n_otel_traces_include_node_spans = false   # workflow-level spans only
+# n8n_otel_traces_sample_rate        = 0.25    # sample a fraction on busy installs
 ```
+
+If you're on a build of the n8n module without those variables, set the
+underlying env vars directly instead (`N8N_OTEL_ENABLED="true"`,
+`N8N_OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger-otlp.monitoring.svc.cluster.local:4318"`
+on main/worker/webhook).
 
 Restart n8n. Run a workflow, then look in Jaeger (service `n8n`) or Grafana's
 *Explore* → Jaeger datasource. See the

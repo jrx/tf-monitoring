@@ -100,7 +100,7 @@ resource "helm_release" "jaeger" {
   # all-in-one component exposes `extraEnv` (it has no podAnnotations/podLabels).
   set {
     name  = "jaeger.extraEnv[0].name"
-    value = "N8N_JAEGER_CONFIG_HASH"
+    value = "JAEGER_CONFIG_HASH"
   }
   set {
     name  = "jaeger.extraEnv[0].value"
