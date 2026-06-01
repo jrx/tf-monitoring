@@ -75,8 +75,17 @@ def stat(title, expr, x, y, w, h, *, unit="short", desc="", thresholds=None,
     }
 
 
+def _seq_refids(targets):
+    """Grafana requires a unique refId per query in a panel; assign A, B, C…
+    in order. The table's organize transform relies on this (Value #A / #B)."""
+    for i, t in enumerate(targets):
+        t["refId"] = chr(ord("A") + i)
+    return targets
+
+
 def timeseries(title, targets, x, y, w, h, *, unit="short", desc="",
                stack=False, fill=10, overrides=None):
+    targets = _seq_refids(targets)
     return {
         "id": nid(), "type": "timeseries", "title": title, "description": desc,
         "datasource": PROM, "gridPos": grid(x, y, w, h),
@@ -106,6 +115,7 @@ def timeseries(title, targets, x, y, w, h, *, unit="short", desc="",
 
 def table(title, targets, x, y, w, h, *, desc="", transformations=None,
           overrides=None, sort_by=None):
+    targets = _seq_refids(targets)
     return {
         "id": nid(), "type": "table", "title": title, "description": desc,
         "datasource": PROM, "gridPos": grid(x, y, w, h),
