@@ -13,10 +13,12 @@ Into a single Kubernetes namespace (default: `monitoring`):
 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics | `prometheus-community/kube-prometheus-stack` | Metrics, dashboards, alerting |
 | Loki (SingleBinary, filesystem) | `grafana/loki` | Log storage |
 | Grafana Alloy | `grafana/alloy` | Pod-log collection + n8n Enterprise Log-Streaming syslog receiver; ships both to Loki |
+| Jaeger (all-in-one, in-memory) | `jaegertracing/jaeger` | OpenTelemetry trace backend for n8n workflow/node spans; OTLP receiver + query UI |
 
-Grafana comes pre-configured with Prometheus, Loki, and the n8n RDS Postgres
-database as datasources. Loki, Prometheus, and `n8n-postgres` datasource UIDs
-are pinned literally so dashboards under `./dashboards/*.json` can reference
+Grafana comes pre-configured with Prometheus, Loki, Jaeger, and the n8n RDS
+Postgres database as datasources. Loki, Prometheus, Jaeger, and `n8n-postgres`
+datasource UIDs are pinned literally so dashboards under `./dashboards/*.json`
+can reference
 them without indirection. Alloy and Grafana both authenticate to Loki with
 tenant `1`.
 
@@ -72,17 +74,19 @@ Until then the scrape config is correct but produces zero samples.
 ├── versions.tf              # required_version + required_providers
 ├── providers.tf             # aws / kubernetes / helm providers (exec-auth)
 ├── data.tf                  # remote_state + aws_eks_cluster lookup
-├── main.tf                  # namespace + 3 helm_releases + alloy-config CM
+├── main.tf                  # namespace + 4 helm_releases + alloy-config CM
 ├── dashboards.tf            # ConfigMaps for every ./dashboards/*.json
 ├── postgres-datasource.tf   # n8n RDS connection + Grafana password Secret
 ├── alloy-syslog.tf          # ClusterIP Service fronting Alloy's syslog listener
+├── jaeger.tf                # ClusterIP Service fronting Jaeger's OTLP receiver
 ├── variables.tf             # inputs (region, namespace, chart versions)
 ├── outputs.tf               # namespace, cluster, Grafana service/secret names
 ├── charts/
 │   ├── kube-prometheus-stack.yaml
 │   ├── loki.yaml
 │   ├── alloy.yaml           # Helm values only — points at alloy-config CM
-│   └── alloy-config.river   # Alloy River pipeline (logs + syslog + PRI parsing)
+│   ├── alloy-config.river   # Alloy River pipeline (logs + syslog + PRI parsing)
+│   └── jaeger.yaml          # Jaeger all-in-one, in-memory (OTLP -> query)
 ├── dashboards/
 │   ├── n8n-system-health.json
 │   ├── n8n-workflow-execution-analytics.json
@@ -101,6 +105,7 @@ Until then the scrape config is correct but produces zero samples.
 | `kube_prometheus_stack_chart_version` | Pinned chart version. | `string` | `85.2.0` |
 | `loki_chart_version` | Pinned chart version. | `string` | `7.0.0` |
 | `alloy_chart_version` | Pinned chart version. | `string` | `1.8.1` |
+| `jaeger_chart_version` | Pinned chart version. | `string` | `4.8.0` |
 
 Find newer chart versions with:
 
@@ -121,6 +126,7 @@ helm search repo grafana/alloy --versions | head
 | `eks_cluster_name` | Name of the targeted EKS cluster. |
 | `grafana_service_name` | Service exposing Grafana inside the namespace. |
 | `grafana_admin_secret_name` | Secret holding the Grafana admin credentials. |
+| `jaeger_otlp_http_endpoint` | In-cluster OTLP/HTTP base URL n8n exports traces to (append `/v1/traces`). |
 
 ## Usage
 
@@ -333,6 +339,69 @@ apply`.
 > `alloy-syslog:1514`. Acceptable for the sandbox; for production,
 > restrict ingress to the `n8n` namespace with a NetworkPolicy and
 > consider per-tenant routing inside the River pipeline.
+
+## OpenTelemetry tracing
+
+n8n can emit [OpenTelemetry](https://docs.n8n.io/hosting/logging-monitoring/opentelemetry/)
+traces for workflow and node executions. This module runs the **trace
+backend** (Jaeger all-in-one, in-memory) and exposes an OTLP endpoint; the
+**n8n side** (turning tracing on) is configured in the `n8n` TFC workspace —
+the same split as Enterprise Log Streaming above (this module runs the
+receiver; n8n is pointed at it).
+
+### What this module provides
+
+| | |
+|---|---|
+| OTLP endpoint (HTTP) | `http://jaeger-otlp.monitoring.svc.cluster.local:4318` |
+| OTLP endpoint (gRPC) | `jaeger-otlp.monitoring.svc.cluster.local:4317` |
+| Terraform output | `jaeger_otlp_http_endpoint` (the HTTP base URL above) |
+| Jaeger query UI | `kubectl -n monitoring port-forward svc/jaeger 16686` then <http://localhost:16686> |
+| Grafana datasource | `Jaeger` (UID `jaeger`), with a coarse span → Loki-logs jump |
+
+The dedicated `jaeger-otlp` Service (see `jaeger.tf`) is the intended producer
+entrypoint. The chart's own `jaeger` Service also exposes 4317/4318 (plus a
+pile of legacy agent/zipkin ports); consumers should target `jaeger-otlp` for
+clarity.
+
+### Turn tracing on in n8n (n8n TFC workspace)
+
+n8n emits over **OTLP HTTP/protobuf** and appends `/v1/traces` to the
+endpoint, so the endpoint is the **base URL**. The vars must be set on every
+n8n instance you want traced — `main`, `worker`, **and** `webhook` (in
+[queue mode](https://docs.n8n.io/hosting/scaling/queue-mode/) trace context
+propagates between them, so all instances need them).
+
+The n8n TFC module exposes typed inputs for this — prefer them over a
+hand-rolled `extraEnv` map (the module fans the vars out to all instances):
+
+```hcl
+n8n_otel_enabled                = true
+n8n_otel_exporter_otlp_endpoint = "http://jaeger-otlp.monitoring.svc.cluster.local:4318"
+# Optional tuning (leave unset to use n8n's defaults):
+# n8n_otel_traces_include_node_spans = false   # workflow-level spans only
+# n8n_otel_traces_sample_rate        = 0.25    # sample a fraction on busy installs
+```
+
+If you're on a build of the n8n module without those variables, set the
+underlying env vars directly instead (`N8N_OTEL_ENABLED="true"`,
+`N8N_OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger-otlp.monitoring.svc.cluster.local:4318"`
+on main/worker/webhook).
+
+Restart n8n. Run a workflow, then look in Jaeger (service `n8n`) or Grafana's
+*Explore* → Jaeger datasource. See the
+[n8n OpenTelemetry env-var reference](https://docs.n8n.io/hosting/configuration/environment-variables/opentelemetry/)
+for the full list.
+
+> ⚠️ **Sandbox only.** Jaeger here uses **in-memory** storage (bounded ring
+> buffer, `max_traces` in `charts/jaeger.yaml`) — traces are lost on pod
+> restart, the same posture as Loki's filesystem storage. For durability,
+> switch the `jaeger_storage` backend to Badger (add a PVC) or an external
+> store (Elasticsearch / Cassandra) and review retention.
+>
+> ⚠️ **Network exposure.** As with `alloy-syslog`, there is no `NetworkPolicy`;
+> any pod can reach `jaeger-otlp:4318`. Fine for the sandbox; restrict ingress
+> to the `n8n` namespace before promoting.
 
 ## Operational notes
 

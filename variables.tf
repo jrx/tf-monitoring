@@ -33,3 +33,9 @@ variable "alloy_chart_version" {
   type        = string
   default     = "1.8.1"
 }
+
+variable "jaeger_chart_version" {
+  description = "Pinned chart version for jaegertracing/jaeger (all-in-one, in-memory)."
+  type        = string
+  default     = "4.8.0"
+}

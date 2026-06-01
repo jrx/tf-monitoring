@@ -18,6 +18,12 @@ Terraform Cloud workspace:
 - Grafana Alloy (replaces Promtail; tails pod logs to Loki AND receives n8n
   Enterprise Log-Streaming syslog events on TCP 1514, see
   `charts/alloy-config.river` and `alloy-syslog.tf`)
+- Jaeger (all-in-one, in-memory; OpenTelemetry trace backend for n8n).
+  Receives OTLP on 4317/4318 via the `jaeger-otlp` Service (`jaeger.tf`);
+  Grafana queries it on 16686 (datasource UID `jaeger`). In-memory → traces
+  lost on pod restart (sandbox posture). Turning tracing ON is an n8n-side
+  change (`N8N_OTEL_ENABLED` + endpoint) that lives in the `n8n` TFC
+  workspace, NOT here — same producer/receiver split as Log Streaming.
 - Four custom dashboard ConfigMaps under `./dashboards/`, loaded into Grafana
   by the chart's bundled `grafana-sc-dashboard` sidecar via the
   `grafana_dashboard=1` label.
@@ -110,6 +116,7 @@ anything they touch:
 | `charts/kube-prometheus-stack.yaml` | `additionalServiceMonitors` must nest under `prometheus:` (chart 76→85 path change; top-level placement is silently accepted but renders nothing). `additionalDataSources` for Postgres needs `database` set in BOTH `database:` (legacy postgres plugin) AND `jsonData.database` (new `grafana-postgresql-datasource` plugin). The `N8N_POSTGRES_PASSWORD` env var resolves in provisioning YAML; `$__file{...}` does NOT. n8n-main is the only n8n pod that exposes `/metrics`; webhook/worker pods don't, even with `N8N_METRICS=true`. KEDA's `metrics` port (8080), not `https` (443). Loki datasource UID is pinned (`uid: loki`) to keep dashboards portable; same convention as `prometheus` and `n8n-postgres`. |
 | `charts/alloy.yaml` + `charts/alloy-config.river` | Alloy's River config is in its own file because the chart's Helm `tpl` pass would otherwise mangle Alloy's own `{{ ... }}` template syntax. The chart's `configMap.create = false` points at `kubernetes_config_map.alloy_config` instead. The syslog source's `__syslog_message_*` internal labels are stripped at the source boundary in Alloy 1.16, so facility/severity are derived from PRI via `use_rfc5424_message = true` + regex + sprig `dict` lookup, then the line is rewritten back to the message body via `stage.output`. |
 | `alloy-syslog.tf` | Dedicated ClusterIP Service `alloy-syslog.monitoring.svc.cluster.local:1514` is the public entrypoint for n8n Enterprise Log-Streaming syslog destinations. The chart's bundled `alloy` Service also publishes 1514 (because of `alloy.extraPorts`), but consumers should target `alloy-syslog` for clarity. |
+| `jaeger.tf` + `charts/jaeger.yaml` | Jaeger v2 all-in-one, in-memory. `charts/jaeger.yaml` replaces the chart's default Elasticsearch pipeline with a `userconfig:` OTLP-in → memory-store → query pipeline (Jaeger v2 is an OTel Collector distro). `jaeger.tf` fronts OTLP 4317/4318 with the `jaeger-otlp` Service for n8n to target; the chart's own `jaeger` Service also exposes them alongside legacy agent/zipkin ports. Grafana datasource (uid `jaeger`) talks to query API on 16686, wired in `charts/kube-prometheus-stack.yaml` with a coarse tracesToLogsV2 jump to Loki. `max_traces` ring buffer; traces lost on restart. |
 | `providers.tf` | Exec-based EKS auth (not `aws_eks_cluster_auth.token`) so 15-min token expiry doesn't kill multi-minute Helm installs. |
 | `postgres-datasource.tf` | DB user is n8n's full read/write app user — sandbox only. Cross-namespace Secret copy. Why env-var interpolation, not `$__file{}`. |
 | `main.tf` | Helm only installs CRDs on first release; chart upgrades won't update them. The Alloy helm_release has a `set { name = "controller.podAnnotations.config\\.hash" }` block that hashes `alloy-config.river` so a standalone River edit rolls the DaemonSet (the chart-bundled config-reloader sidecar is disabled). The path is `controller.podAnnotations`, NOT top-level `podAnnotations` — top-level is silently accepted and silently dropped. |
