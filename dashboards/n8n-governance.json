@@ -1344,7 +1344,10 @@
         "definition": "SELECT id AS __value, name AS __text FROM workflow_entity WHERE \"isArchived\" = false ORDER BY name",
         "query": {
           "rawSql": "SELECT id AS __value, name AS __text FROM workflow_entity WHERE \"isArchived\" = false ORDER BY name",
-          "refId": "PostgresVariableQueryEditor-VariableQuery"
+          "refId": "PostgresVariableQueryEditor-VariableQuery",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         },
         "refresh": 1,
         "includeAll": true,
@@ -1376,7 +1379,10 @@
         "definition": "SELECT id AS __value, name AS __text FROM project ORDER BY type, name",
         "query": {
           "rawSql": "SELECT id AS __value, name AS __text FROM project ORDER BY type, name",
-          "refId": "PostgresVariableQueryEditor-VariableQuery"
+          "refId": "PostgresVariableQueryEditor-VariableQuery",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         },
         "refresh": 1,
         "includeAll": true,
