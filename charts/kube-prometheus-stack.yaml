@@ -10,6 +10,19 @@ defaultRules:
 prometheus:
   prometheusSpec:
     retention: 15d
+    # Persist the TSDB on an EBS gp3 PVC so metrics (and the spanmetrics RED
+    # series) survive pod restarts/reschedules — without this the operator
+    # uses emptyDir and `retention: 15d` is meaningless. Operator-managed
+    # StatefulSet -> volumeClaimTemplate. gp3 is WaitForFirstConsumer, so the
+    # volume binds in whatever AZ the pod schedules into (no AZ stranding).
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: ${storage_class_name}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
     # Scrape ServiceMonitor / PodMonitor / Probe / Rule objects from any
     # namespace, not just those matching the chart's release labels. This
     # lets other workloads ship monitoring config without coordinating
@@ -105,6 +118,15 @@ prometheus:
 
 alertmanager:
   alertmanagerSpec:
+    # Persist silences + notification-dedup state across restarts.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: ${storage_class_name}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
     resources:
       requests:
         cpu: 50m

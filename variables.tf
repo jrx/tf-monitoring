@@ -39,3 +39,9 @@ variable "jaeger_chart_version" {
   type        = string
   default     = "4.8.0"
 }
+
+variable "storage_class_name" {
+  description = "StorageClass for persistent volumes (Prometheus TSDB, Alertmanager state, Loki logs). Defaults to the cluster's EBS gp3 class (ebs.csi.aws.com, WaitForFirstConsumer)."
+  type        = string
+  default     = "gp3"
+}
