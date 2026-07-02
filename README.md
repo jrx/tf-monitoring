@@ -109,6 +109,7 @@ Until then the scrape config is correct but produces zero samples.
 | `alloy_chart_version` | Pinned chart version. | `string` | `1.8.1` |
 | `jaeger_chart_version` | Pinned chart version. | `string` | `4.8.0` |
 | `storage_class_name` | StorageClass for the Prometheus / Alertmanager / Loki PVCs. | `string` | `gp3` |
+| `loki_retention_period` | Loki log retention (compactor deletes older chunks). `0` or a multiple of 24h. | `string` | `168h` |
 
 Find newer chart versions with:
 
@@ -466,10 +467,14 @@ consumer instead.
   > (`kubectl -n monitoring delete sts <name> --cascade=orphan`), then
   > `terraform apply` — the operator/chart recreates it with the volume.
   > A greenfield apply is unaffected.
-- **Loki durability**: logs now persist on the PVC above. Storage is
-  still single-node filesystem (not S3) and has **no retention/compaction
-  limit**, so the 10Gi PVC can fill over time — add a compactor +
-  retention policy, or move to S3 + `SimpleScalable`, before heavy use.
+- **Loki retention**: the compactor runs with `retention_enabled` and
+  deletes chunks older than `var.loki_retention_period` (default `168h`
+  = 7d), keeping the 10Gi PVC bounded. Loki requires a
+  `delete_request_store` when retention is on — set to `filesystem` to
+  match the storage backend, with `working_directory` on the PVC
+  (`/var/loki/compactor`). `retention_period` must be `0` (infinite) or a
+  multiple of the 24h index period. Storage is still single-node
+  filesystem (not S3); move to S3 + `SimpleScalable` for HA / high volume.
 - **CRD scope**: Prometheus is configured with
   `serviceMonitorSelectorNilUsesHelmValues: false`, so any
   `ServiceMonitor` / `PodMonitor` / `PrometheusRule` in any namespace

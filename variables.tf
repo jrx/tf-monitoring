@@ -45,3 +45,9 @@ variable "storage_class_name" {
   type        = string
   default     = "gp3"
 }
+
+variable "loki_retention_period" {
+  description = "Loki log retention. The compactor deletes chunks older than this. Must be 0 (infinite) or a multiple of the 24h index period."
+  type        = string
+  default     = "168h"
+}

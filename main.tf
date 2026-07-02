@@ -46,7 +46,8 @@ resource "helm_release" "loki" {
 
   values = [
     templatefile("${path.module}/charts/loki.yaml", {
-      storage_class_name = var.storage_class_name
+      storage_class_name    = var.storage_class_name
+      loki_retention_period = var.loki_retention_period
     })
   ]
 

@@ -30,6 +30,19 @@ loki:
   # tenancy on keeps both producers and consumers consistent.
   auth_enabled: true
 
+  # Log retention: the compactor deletes chunks older than retention_period,
+  # keeping the PVC bounded. Loki requires delete_request_store when retention
+  # is enabled; filesystem matches loki.storage.type. retention_period must be
+  # 0 or a multiple of the 24h index period. limits_config here deep-merges
+  # with the chart's defaults (adds retention_period, keeps the rest).
+  limits_config:
+    retention_period: ${loki_retention_period}
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
+    retention_delete_delay: 2h
+
 # Scale all non-SingleBinary deployments to zero.
 write:
   replicas: 0
