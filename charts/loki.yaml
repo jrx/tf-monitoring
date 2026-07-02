@@ -1,10 +1,13 @@
 # Values for grafana/loki (chart v7.x).
 # Reference: https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
 #
-# SingleBinary deployment, filesystem storage on emptyDir — suitable for a
-# sandbox cluster. Logs are lost on pod restart. For durability, switch storage
-# to S3, set singleBinary.persistence.enabled=true with a real StorageClass, or
-# run the SimpleScalable topology.
+# SingleBinary deployment, filesystem storage on a persistent EBS gp3 PVC.
+# Logs survive pod restarts/reschedules. This is still single-node filesystem
+# storage (not S3 / SimpleScalable) — appropriate for this scale; move to S3 +
+# SimpleScalable for HA or high volume.
+#
+# NOTE: no retention/compaction limit is set, so the PVC can fill over time.
+# Add a compactor + retention policy as a follow-up before heavy use.
 
 deploymentMode: SingleBinary
 
@@ -27,6 +30,19 @@ loki:
   # tenancy on keeps both producers and consumers consistent.
   auth_enabled: true
 
+  # Log retention: the compactor deletes chunks older than retention_period,
+  # keeping the PVC bounded. Loki requires delete_request_store when retention
+  # is enabled; filesystem matches loki.storage.type. retention_period must be
+  # 0 or a multiple of the 24h index period. limits_config here deep-merges
+  # with the chart's defaults (adds retention_period, keeps the rest).
+  limits_config:
+    retention_period: ${loki_retention_period}
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
+    retention_delete_delay: 2h
+
 # Scale all non-SingleBinary deployments to zero.
 write:
   replicas: 0
@@ -37,20 +53,15 @@ backend:
 
 singleBinary:
   replicas: 1
-  # No EBS CSI driver / default StorageClass on this cluster, so PVC binding
-  # would hang forever. Use emptyDir for sandbox use.
+  # Persistent PVC for /var/loki (chunks + index). gp3 is WaitForFirstConsumer,
+  # so the volume binds in the pod's AZ. This replaces the previous emptyDir
+  # workaround (which existed only because the cluster had no StorageClass) —
+  # the chart mounts this PVC at the Loki data dir, satisfying the writable
+  # /var/loki that readOnlyRootFilesystem=true otherwise blocks.
   persistence:
-    enabled: false
-  # With persistence disabled the chart removes the `storage` volume entirely,
-  # but Loki still needs /var/loki to be writable (readOnlyRootFilesystem=true
-  # is the chart's default container securityContext). Inject an emptyDir so
-  # the ruler-storage module can mkdir /var/loki at startup.
-  extraVolumes:
-    - name: loki-storage
-      emptyDir: {}
-  extraVolumeMounts:
-    - name: loki-storage
-      mountPath: /var/loki
+    enabled: true
+    size: 10Gi
+    storageClass: ${storage_class_name}
   resources:
     requests:
       cpu: 100m

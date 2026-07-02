@@ -39,3 +39,15 @@ variable "jaeger_chart_version" {
   type        = string
   default     = "4.8.0"
 }
+
+variable "storage_class_name" {
+  description = "StorageClass for persistent volumes (Prometheus TSDB, Alertmanager state, Loki logs). Defaults to the cluster's EBS gp3 class (ebs.csi.aws.com, WaitForFirstConsumer)."
+  type        = string
+  default     = "gp3"
+}
+
+variable "loki_retention_period" {
+  description = "Loki log retention. The compactor deletes chunks older than this. Must be 0 (infinite) or a multiple of the 24h index period."
+  type        = string
+  default     = "168h"
+}

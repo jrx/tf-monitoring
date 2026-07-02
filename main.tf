@@ -21,10 +21,11 @@ resource "helm_release" "kube_prometheus_stack" {
   # postgres-datasource.tf.
   values = [
     templatefile("${path.module}/charts/kube-prometheus-stack.yaml", {
-      n8n_db_host = data.terraform_remote_state.n8n.outputs.rds_endpoint
-      n8n_db_port = var.n8n_db_port
-      n8n_db_name = var.n8n_db_name
-      n8n_db_user = var.n8n_db_user
+      n8n_db_host        = data.terraform_remote_state.n8n.outputs.rds_endpoint
+      n8n_db_port        = var.n8n_db_port
+      n8n_db_name        = var.n8n_db_name
+      n8n_db_user        = var.n8n_db_user
+      storage_class_name = var.storage_class_name
     })
   ]
 
@@ -34,8 +35,8 @@ resource "helm_release" "kube_prometheus_stack" {
   ]
 }
 
-# Loki — SingleBinary mode, filesystem storage. Suitable for a sandbox cluster;
-# logs are lost on pod restart. Move to object storage (S3) for durability.
+# Loki — SingleBinary mode, filesystem storage on a persistent gp3 PVC
+# (charts/loki.yaml). Logs survive restarts; move to S3 for HA / high volume.
 resource "helm_release" "loki" {
   name       = "loki"
   repository = "https://grafana.github.io/helm-charts"
@@ -44,7 +45,10 @@ resource "helm_release" "loki" {
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [
-    file("${path.module}/charts/loki.yaml")
+    templatefile("${path.module}/charts/loki.yaml", {
+      storage_class_name    = var.storage_class_name
+      loki_retention_period = var.loki_retention_period
+    })
   ]
 
   depends_on = [

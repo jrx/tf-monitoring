@@ -124,6 +124,36 @@ anything they touch:
 
 ---
 
+## Persistent storage (PVCs)
+
+Prometheus (TSDB, 20Gi), Alertmanager (2Gi), and Loki (10Gi) claim EBS
+`gp3` PVCs via `var.storage_class_name` (default `gp3`, injected into
+`charts/kube-prometheus-stack.yaml` and `charts/loki.yaml` through
+`templatefile`). Before this the cluster had no StorageClass and all three
+ran on `emptyDir` (data lost on restart) — the Loki values still carry the
+history of that emptyDir workaround in its removed comments.
+
+Gotchas:
+
+- **`volumeClaimTemplates` are immutable.** You cannot `helm upgrade`
+  storage onto an already-running Prometheus/Alertmanager/Loki
+  StatefulSet. Delete the STS orphaning pods
+  (`kubectl -n monitoring delete sts <name> --cascade=orphan`) then
+  re-apply. Greenfield applies are fine.
+- **`gp3` is `WaitForFirstConsumer`** — volumes bind in the pod's AZ, so
+  single-replica StatefulSets don't get AZ-stranded across the cluster's
+  two AZs. Don't switch to an `Immediate`-binding class.
+- **Deployments need `strategy: Recreate` for an RWO PVC.** Prometheus/
+  Alertmanager/Loki are StatefulSets (fine). If Jaeger or Grafana are
+  ever given a PVC, they're Deployments — an RWO volume will deadlock a
+  rolling update (old pod holds it), so set `Recreate`. Jaeger also has
+  the config-hash env roll, which makes this mandatory there.
+- **Persistence ≠ HA.** Single replica, single volume, single AZ per
+  component. Survives restarts, not an AZ outage.
+- Jaeger stays **in-memory** (raw traces ephemeral) and Grafana stays
+  **provisioned-only** (no PVC) on purpose; the trace RED metrics live in
+  Prometheus, which is persistent.
+
 ## Operational quirks
 
 ### TFC remote backend

@@ -11,7 +11,7 @@ Into a single Kubernetes namespace (default: `monitoring`):
 | Component | Helm chart | Purpose |
 |---|---|---|
 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics | `prometheus-community/kube-prometheus-stack` | Metrics, dashboards, alerting |
-| Loki (SingleBinary, filesystem) | `grafana/loki` | Log storage |
+| Loki (SingleBinary, filesystem on a gp3 PVC) | `grafana/loki` | Log storage (persistent) |
 | Grafana Alloy | `grafana/alloy` | Pod-log collection + n8n Enterprise Log-Streaming syslog receiver; ships both to Loki |
 | Jaeger (all-in-one, in-memory) | `jaegertracing/jaeger` | OpenTelemetry trace backend for n8n workflow/node spans; OTLP receiver + query UI; spanmetrics connector publishes RED metrics to Prometheus |
 
@@ -108,6 +108,8 @@ Until then the scrape config is correct but produces zero samples.
 | `loki_chart_version` | Pinned chart version. | `string` | `7.0.0` |
 | `alloy_chart_version` | Pinned chart version. | `string` | `1.8.1` |
 | `jaeger_chart_version` | Pinned chart version. | `string` | `4.8.0` |
+| `storage_class_name` | StorageClass for the Prometheus / Alertmanager / Loki PVCs. | `string` | `gp3` |
+| `loki_retention_period` | Loki log retention (compactor deletes older chunks). `0` or a multiple of 24h. | `string` | `168h` |
 
 Find newer chart versions with:
 
@@ -449,10 +451,30 @@ consumer instead.
   kubectl apply --server-side -f \
     https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-<version>/charts/kube-prometheus-stack/charts/crds/crds/
   ```
-- **Loki durability**: SingleBinary + filesystem storage loses logs on
-  pod restart. For anything beyond a sandbox cluster, switch
-  `charts/loki.yaml` to S3 storage and the `SimpleScalable` deployment
-  mode.
+- **Persistence (PVCs)**: Prometheus (TSDB, 20Gi), Alertmanager (2Gi),
+  and Loki (10Gi) each claim an EBS `gp3` PVC (`var.storage_class_name`),
+  so metrics / silences / logs survive pod restarts and reschedules.
+  `gp3` is `WaitForFirstConsumer`, so each volume binds in the AZ its pod
+  lands in — no cross-AZ stranding for these single-replica workloads.
+  This is durability, **not HA**: still one replica and one volume (one
+  AZ) per component. Jaeger (in-memory traces) and Grafana (provisioned
+  dashboards/datasources) remain ephemeral by design — the aggregate
+  trace RED metrics persist in Prometheus regardless.
+  > ⚠️ **Adding storage to an already-running stack**: a StatefulSet's
+  > `volumeClaimTemplates` are immutable, so you can't `helm upgrade`
+  > storage onto an existing Prometheus / Alertmanager / Loki. Delete the
+  > StatefulSet first, orphaning its pods
+  > (`kubectl -n monitoring delete sts <name> --cascade=orphan`), then
+  > `terraform apply` — the operator/chart recreates it with the volume.
+  > A greenfield apply is unaffected.
+- **Loki retention**: the compactor runs with `retention_enabled` and
+  deletes chunks older than `var.loki_retention_period` (default `168h`
+  = 7d), keeping the 10Gi PVC bounded. Loki requires a
+  `delete_request_store` when retention is on — set to `filesystem` to
+  match the storage backend, with `working_directory` on the PVC
+  (`/var/loki/compactor`). `retention_period` must be `0` (infinite) or a
+  multiple of the 24h index period. Storage is still single-node
+  filesystem (not S3); move to S3 + `SimpleScalable` for HA / high volume.
 - **CRD scope**: Prometheus is configured with
   `serviceMonitorSelectorNilUsesHelmValues: false`, so any
   `ServiceMonitor` / `PodMonitor` / `PrometheusRule` in any namespace
