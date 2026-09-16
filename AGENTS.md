@@ -24,9 +24,16 @@ Terraform Cloud workspace:
   lost on pod restart (sandbox posture). Turning tracing ON is an n8n-side
   change (`N8N_OTEL_ENABLED` + endpoint) that lives in the `n8n` TFC
   workspace, NOT here — same producer/receiver split as Log Streaming.
-- Four custom dashboard ConfigMaps under `./dashboards/`, loaded into Grafana
-  by the chart's bundled `grafana-sc-dashboard` sidecar via the
-  `grafana_dashboard=1` label.
+- postgres-exporter and redis-exporter (`exporters.tf`, values under
+  `charts/`) pointed at the n8n RDS instance and ElastiCache. Redis
+  connection details come from the `n8n` workspace's `redis_endpoint` /
+  `redis_port` outputs.
+- Ten dashboard ConfigMaps under `./dashboards/`, loaded into Grafana by the
+  chart's bundled `grafana-sc-dashboard` sidecar via the
+  `grafana_dashboard=1` label. Seven are the n8n Monitoring Pack, generated
+  by `dashboards/import-monitoring-pack.py` from the upstream portable JSON
+  (do not hand-edit those seven; edit the script and regenerate). Three are
+  local: governance (Postgres), audit events (Loki), traces (Prometheus).
 
 State: TFC workspace **`jrxhc/monitoring`** (see `backend.hcl`).
 Target cluster: `jrx-test` in `eu-north-1`. **Sandbox only** — see
@@ -113,7 +120,7 @@ anything they touch:
 | File | Topics |
 |---|---|
 | `dashboards.tf` | Sidecar discovery (`grafana_dashboard=1` label), the `replace()` substitution, UID hardcoding convention. |
-| `charts/kube-prometheus-stack.yaml` | `additionalServiceMonitors` must nest under `prometheus:` (chart 76→85 path change; top-level placement is silently accepted but renders nothing). `additionalDataSources` for Postgres needs `database` set in BOTH `database:` (legacy postgres plugin) AND `jsonData.database` (new `grafana-postgresql-datasource` plugin). The `N8N_POSTGRES_PASSWORD` env var resolves in provisioning YAML; `$__file{...}` does NOT. n8n-main is the only n8n pod that exposes `/metrics`; webhook/worker pods don't, even with `N8N_METRICS=true`. KEDA's `metrics` port (8080), not `https` (443). Loki datasource UID is pinned (`uid: loki`) to keep dashboards portable; same convention as `prometheus` and `n8n-postgres`. |
+| `charts/kube-prometheus-stack.yaml` | `additionalServiceMonitors` must nest under `prometheus:` (chart 76→85 path change; top-level placement is silently accepted but renders nothing). `additionalDataSources` for Postgres needs `database` set in BOTH `database:` (legacy postgres plugin) AND `jsonData.database` (new `grafana-postgresql-datasource` plugin). The `N8N_POSTGRES_PASSWORD` env var resolves in provisioning YAML; `$__file{...}` does NOT. All three n8n roles expose `/metrics` on 5678 (verified on 2.39.6; the old "main only" note was wrong). The single `n8n` ServiceMonitor relabels to `job="n8n"` and `component=<pod label>`; the pack dashboards depend on both. The worker Service it selects is created by the `tf-n8n` root module. KEDA's `metrics` port (8080), not `https` (443). Loki datasource UID is pinned (`uid: loki`) to keep dashboards portable; same convention as `prometheus` and `n8n-postgres`. |
 | `charts/alloy.yaml` + `charts/alloy-config.river` | Alloy's River config is in its own file because the chart's Helm `tpl` pass would otherwise mangle Alloy's own `{{ ... }}` template syntax. The chart's `configMap.create = false` points at `kubernetes_config_map.alloy_config` instead. The syslog source's `__syslog_message_*` internal labels are stripped at the source boundary in Alloy 1.16, so facility/severity are derived from PRI via `use_rfc5424_message = true` + regex + sprig `dict` lookup, then the line is rewritten back to the message body via `stage.output`. |
 | `alloy-syslog.tf` | Dedicated ClusterIP Service `alloy-syslog.monitoring.svc.cluster.local:1514` is the public entrypoint for n8n Enterprise Log-Streaming syslog destinations. The chart's bundled `alloy` Service also publishes 1514 (because of `alloy.extraPorts`), but consumers should target `alloy-syslog` for clarity. |
 | `jaeger.tf` + `charts/jaeger.yaml` | Jaeger v2 all-in-one, in-memory. `charts/jaeger.yaml` replaces the chart's default Elasticsearch pipeline with a `userconfig:` OTLP-in → memory-store → query pipeline (Jaeger v2 is an OTel Collector distro). `jaeger.tf` fronts OTLP 4317/4318 with the `jaeger-otlp` Service for n8n to target; the chart's own `jaeger` Service also exposes them alongside legacy agent/zipkin ports. Grafana datasource (uid `jaeger`) talks to query API on 16686, wired in `charts/kube-prometheus-stack.yaml` with a coarse tracesToLogsV2 jump to Loki. `max_traces` ring buffer; traces lost on restart. |
@@ -198,10 +205,32 @@ workspace or a separate repo.
 
 ### Dashboards show "No data" until n8n exposes metrics
 
-The ServiceMonitors are configured correctly, but n8n itself must be
-started with `N8N_METRICS=true` (set in the n8n workspace's chart values)
-for `/metrics` to return Prometheus-format output. Until then, expect
-empty panels. Only n8n-main exposes the endpoint.
+The ServiceMonitors are configured correctly, but the producer side lives
+in the `n8n` workspace: `N8N_METRICS=true` (module input
+`n8n_metrics_enabled`) plus the `N8N_METRICS_INCLUDE_*` flags in
+`local.n8n_metrics_env` of the tf-n8n root `main.tf`. A pack panel that is
+empty usually means its flag is off or there has been no matching traffic
+(webhook / execution histograms only populate when something runs), not a
+scrape problem. Check `/metrics` on the pod before touching the scrape
+config. Flag names are verified against n8n 2.39.6
+`packages/@n8n/config/src/configs/endpoints.config.ts`; do not invent new
+ones.
+
+Metric semantics worth knowing before "fixing" a panel:
+
+- Execution duration histogram and `n8n_workflow_{started,success,failed}_total`
+  are emitted by the main that owns the execution, never by workers
+  (`hookFunctionsWorkflowEvents` is only registered in
+  `getLifecycleHooksForScalingMain`). `sum()` across `job="n8n"` does not
+  double count.
+- `n8n_scaling_mode_queue_jobs_*` come from every main reading the same
+  Bull queue; aggregate with `max()`. Upstream calls this unreliable in
+  multi-main; the Redis exporter's `redis_key_size{key="bull:jobs:*"}` is
+  the authoritative queue depth.
+- `n8n_execution_data_storage_mode` reports `db` here (tf-n8n keeps
+  execution data in PostgreSQL). The upstream pack expects `s3`.
+- PgBouncer is not deployed; the pack's PgBouncer panels were replaced by a
+  text panel on purpose. Don't install PgBouncer to fill them.
 
 ---
 
