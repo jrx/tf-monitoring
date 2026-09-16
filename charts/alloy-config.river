@@ -5,6 +5,14 @@ logging {
 
 discovery.kubernetes "pods" {
   role = "pod"
+
+  // Each DaemonSet instance tails only its node's pods. The chart injects
+  // K8S_NODE_NAME from spec.nodeName. Filtering at discovery also avoids
+  // a cluster-wide pod watch per replica.
+  selectors {
+    role  = "pod"
+    field = "spec.nodeName=" + sys.env("K8S_NODE_NAME")
+  }
 }
 
 discovery.relabel "pod_logs" {

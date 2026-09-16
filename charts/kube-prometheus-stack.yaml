@@ -137,6 +137,17 @@ alertmanager:
 grafana:
   defaultDashboardsTimezone: utc
 
+  # Normal sidecars in Grafana chart 13.2.5 both default to health port 8080.
+  # They share the pod network, so give each health server a distinct port.
+  # The chart's automatic HEALTH_PORT settings apply only to init sidecars.
+  sidecar:
+    dashboards:
+      env:
+        HEALTH_PORT: "8084"
+    datasources:
+      env:
+        HEALTH_PORT: "8082"
+
   # Project the n8n-postgres-grafana Secret (managed by Terraform in
   # postgres-datasource.tf) into the Grafana container as the env var
   # N8N_POSTGRES_PASSWORD. The datasource provisioning YAML references
