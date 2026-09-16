@@ -131,7 +131,7 @@
       "id": 1,
       "type": "stat",
       "title": "Executions in range",
-      "description": "All executions (success + failed, every mode) finished in the selected time range. increase() over the execution-duration histogram count; set the range to the billing period you care about.",
+      "description": "All executions (success + failed, every mode) finished in the selected time range, from the execution-duration histogram count. Set the range to the billing period you care about.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -176,7 +176,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]))",
+          "expr": "sum(((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range)))",
           "refId": "A",
           "instant": true,
           "range": false
@@ -246,7 +246,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range])) / $quota",
+          "expr": "sum(((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range))) / $quota",
           "refId": "A",
           "instant": true,
           "range": false
@@ -465,7 +465,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1d]))",
+          "expr": "sum by (status) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1d]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d)))",
           "refId": "A",
           "legendFormat": "{{status}}",
           "interval": "1d"
@@ -476,7 +476,7 @@
       "id": 6,
       "type": "table",
       "title": "Top 10 workflows by executions (range)",
-      "description": "n8n_workflow_started_total by workflow over the range, with success ratio. Needs the workflow_id / workflow_name label flags.",
+      "description": "n8n_workflow_started_total by workflow over the range, with success ratio. Needs the workflow_id / workflow_name label flags. Hidden label \"ID\" disambiguates renamed workflows.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -608,7 +608,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "topk(10, sum by (workflow_id, workflow_name) (increase(n8n_workflow_started_total{job=\"$job\"}[$__range])))",
+          "expr": "topk(10, sum by (workflow_id, workflow_name) (((increase(n8n_workflow_started_total{job=\"$job\"}[$__range]) and n8n_workflow_started_total{job=\"$job\"} offset $__range) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $__range))))",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -619,7 +619,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "((sum by (workflow_id, workflow_name) (increase(n8n_workflow_success_total{job=\"$job\"}[$__range]))) / (sum by (workflow_id, workflow_name) (increase(n8n_workflow_started_total{job=\"$job\"}[$__range])))) and on (workflow_id, workflow_name) topk(10, sum by (workflow_id, workflow_name) (increase(n8n_workflow_started_total{job=\"$job\"}[$__range])))",
+          "expr": "((sum by (workflow_id, workflow_name) (((increase(n8n_workflow_success_total{job=\"$job\"}[$__range]) and n8n_workflow_success_total{job=\"$job\"} offset $__range) or (n8n_workflow_success_total{job=\"$job\"} unless n8n_workflow_success_total{job=\"$job\"} offset $__range)))) / (sum by (workflow_id, workflow_name) (((increase(n8n_workflow_started_total{job=\"$job\"}[$__range]) and n8n_workflow_started_total{job=\"$job\"} offset $__range) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $__range))))) and on (workflow_id, workflow_name) topk(10, sum by (workflow_id, workflow_name) (((increase(n8n_workflow_started_total{job=\"$job\"}[$__range]) and n8n_workflow_started_total{job=\"$job\"} offset $__range) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $__range))))",
           "refId": "B",
           "instant": true,
           "range": false,
@@ -763,7 +763,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "topk(10, sum by (workflow_id, workflow_name) (increase(n8n_workflow_failed_total{job=\"$job\"}[$__range])) > 0)",
+          "expr": "topk(10, sum by (workflow_id, workflow_name) (((increase(n8n_workflow_failed_total{job=\"$job\"}[$__range]) and n8n_workflow_failed_total{job=\"$job\"} offset $__range) or (n8n_workflow_failed_total{job=\"$job\"} unless n8n_workflow_failed_total{job=\"$job\"} offset $__range))) > 0)",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -774,7 +774,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "((sum by (workflow_id, workflow_name) (increase(n8n_workflow_failed_total{job=\"$job\"}[$__range]))) / (sum by (workflow_id, workflow_name) (increase(n8n_workflow_started_total{job=\"$job\"}[$__range])))) and on (workflow_id, workflow_name) topk(10, sum by (workflow_id, workflow_name) (increase(n8n_workflow_failed_total{job=\"$job\"}[$__range])) > 0)",
+          "expr": "((sum by (workflow_id, workflow_name) (((increase(n8n_workflow_failed_total{job=\"$job\"}[$__range]) and n8n_workflow_failed_total{job=\"$job\"} offset $__range) or (n8n_workflow_failed_total{job=\"$job\"} unless n8n_workflow_failed_total{job=\"$job\"} offset $__range)))) / (sum by (workflow_id, workflow_name) (((increase(n8n_workflow_started_total{job=\"$job\"}[$__range]) and n8n_workflow_started_total{job=\"$job\"} offset $__range) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $__range))))) and on (workflow_id, workflow_name) topk(10, sum by (workflow_id, workflow_name) (((increase(n8n_workflow_failed_total{job=\"$job\"}[$__range]) and n8n_workflow_failed_total{job=\"$job\"} offset $__range) or (n8n_workflow_failed_total{job=\"$job\"} unless n8n_workflow_failed_total{job=\"$job\"} offset $__range))) > 0)",
           "refId": "B",
           "instant": true,
           "range": false,
@@ -883,7 +883,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) unless on (workflow_id) ((sum by (workflow_id) (increase(n8n_workflow_success_total{job=\"$job\"}[$stale_window])) > 0) or (sum by (workflow_id) (n8n_workflow_success_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_workflow_success_total{job=\"$job\"} offset $stale_window)))",
+          "expr": "max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) unless on (workflow_id) (sum by (workflow_id) (((increase(n8n_workflow_success_total{job=\"$job\"}[$stale_window]) and n8n_workflow_success_total{job=\"$job\"} offset $stale_window) or (n8n_workflow_success_total{job=\"$job\"} unless n8n_workflow_success_total{job=\"$job\"} offset $stale_window))) > 0)",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -894,7 +894,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (workflow_id) (increase(n8n_workflow_failed_total{job=\"$job\"}[$stale_window])) and on (workflow_id) (max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) unless on (workflow_id) ((sum by (workflow_id) (increase(n8n_workflow_success_total{job=\"$job\"}[$stale_window])) > 0) or (sum by (workflow_id) (n8n_workflow_success_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_workflow_success_total{job=\"$job\"} offset $stale_window))))",
+          "expr": "sum by (workflow_id) (((increase(n8n_workflow_failed_total{job=\"$job\"}[$stale_window]) and n8n_workflow_failed_total{job=\"$job\"} offset $stale_window) or (n8n_workflow_failed_total{job=\"$job\"} unless n8n_workflow_failed_total{job=\"$job\"} offset $stale_window))) and on (workflow_id) (max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) unless on (workflow_id) (sum by (workflow_id) (((increase(n8n_workflow_success_total{job=\"$job\"}[$stale_window]) and n8n_workflow_success_total{job=\"$job\"} offset $stale_window) or (n8n_workflow_success_total{job=\"$job\"} unless n8n_workflow_success_total{job=\"$job\"} offset $stale_window))) > 0))",
           "refId": "B",
           "instant": true,
           "range": false,
@@ -1003,7 +1003,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) and on (workflow_id) ((sum by (workflow_id) (increase(n8n_workflow_started_total{job=\"$job\"}[$stale_window])) > 0) or (sum by (workflow_id) (n8n_workflow_started_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_workflow_started_total{job=\"$job\"} offset $stale_window))) unless on (workflow_id) ((sum by (workflow_id) (increase(n8n_audit_workflow_updated_total{job=\"$job\"}[$zombie_window])) > 0) or (sum by (workflow_id) (n8n_audit_workflow_updated_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window)))",
+          "expr": "max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) and on (workflow_id) (sum by (workflow_id) (((increase(n8n_workflow_started_total{job=\"$job\"}[$stale_window]) and n8n_workflow_started_total{job=\"$job\"} offset $stale_window) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $stale_window))) > 0) unless on (workflow_id) (sum by (workflow_id) (((increase(n8n_audit_workflow_updated_total{job=\"$job\"}[$zombie_window]) and n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window) or (n8n_audit_workflow_updated_total{job=\"$job\"} unless n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window))) > 0)",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -1014,7 +1014,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (workflow_id) (increase(n8n_workflow_started_total{job=\"$job\"}[$zombie_window])) and on (workflow_id) (max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) and on (workflow_id) ((sum by (workflow_id) (increase(n8n_workflow_started_total{job=\"$job\"}[$stale_window])) > 0) or (sum by (workflow_id) (n8n_workflow_started_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_workflow_started_total{job=\"$job\"} offset $stale_window))) unless on (workflow_id) ((sum by (workflow_id) (increase(n8n_audit_workflow_updated_total{job=\"$job\"}[$zombie_window])) > 0) or (sum by (workflow_id) (n8n_audit_workflow_updated_total{job=\"$job\"}) unless sum by (workflow_id) (n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window))))",
+          "expr": "sum by (workflow_id) (((increase(n8n_workflow_started_total{job=\"$job\"}[$zombie_window]) and n8n_workflow_started_total{job=\"$job\"} offset $zombie_window) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $zombie_window))) and on (workflow_id) (max by (workflow_id, workflow_name) (n8n_active_workflow_info{job=\"$job\"}) and on (workflow_id) (sum by (workflow_id) (((increase(n8n_workflow_started_total{job=\"$job\"}[$stale_window]) and n8n_workflow_started_total{job=\"$job\"} offset $stale_window) or (n8n_workflow_started_total{job=\"$job\"} unless n8n_workflow_started_total{job=\"$job\"} offset $stale_window))) > 0) unless on (workflow_id) (sum by (workflow_id) (((increase(n8n_audit_workflow_updated_total{job=\"$job\"}[$zombie_window]) and n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window) or (n8n_audit_workflow_updated_total{job=\"$job\"} unless n8n_audit_workflow_updated_total{job=\"$job\"} offset $zombie_window))) > 0))",
           "refId": "B",
           "instant": true,
           "range": false,

@@ -29,8 +29,10 @@ Semantics worth knowing:
     that owns the execution only (hookFunctionsWorkflowEvents is registered
     in getLifecycleHooksForScalingMain, not on workers), so sum() over
     job="$job" does not double count.
-  * "In range" panels use increase() over $__range. They are only as
-    complete as Prometheus retention; the 7d / 30d windows on the stale and
+  * "In range" panels count increase() for series that existed at range
+    start plus the current value of series born inside the range (see
+    total()); plain increase() would drop the first burst after a series
+    appears. They are only as complete as Prometheus retention; the 7d / 30d windows on the stale and
     zombie tables need at least that much retention.
   * The lifetime gauges (n8n_production_executions etc.) come from the
     license-metrics repository and survive pod restarts; use them for quota
@@ -193,25 +195,39 @@ def heat_override(header, scheme="continuous-BlPu"):
 # PromQL fragments
 # ---------------------------------------------------------------------------
 BY_WF = "by (workflow_id, workflow_name)"
-EXEC_RANGE = f'sum(increase(n8n_workflow_execution_duration_seconds_count{{{JOB}}}[$__range]))'
-STARTED_RANGE = f'sum {BY_WF} (increase(n8n_workflow_started_total{{{JOB}}}[$__range]))'
-SUCCESS_RANGE = f'sum {BY_WF} (increase(n8n_workflow_success_total{{{JOB}}}[$__range]))'
-FAILED_RANGE = f'sum {BY_WF} (increase(n8n_workflow_failed_total{{{JOB}}}[$__range]))'
+
+
+def total(metric, window):
+    """Per-series count of `metric` events inside `window`.
+
+    n8n's event-bus counters (and the per-label children of the duration
+    histogram) are created lazily on the first event and never
+    zero-initialised, so plain increase() misses every event that happened
+    before Prometheus saw the series: a counter born at 12 and flat since
+    reports 0. Split the series set instead:
+      * existed at window start  -> increase() over the window
+      * born inside the window   -> its current value (the events that created it)
+    The two sets are disjoint, so `or` unions them. A pod restart inside the
+    window lands the new pod's series in the second set, which is the right
+    answer too. Aggregate the result with sum()/sum by ()."""
+    sel = f'{metric}{{{JOB}}}'
+    return (f'((increase({sel}[{window}]) and {sel} offset {window}) '
+            f'or ({sel} unless {sel} offset {window}))')
+
+
+HIST_COUNT = "n8n_workflow_execution_duration_seconds_count"
+EXEC_RANGE = f'sum({total(HIST_COUNT, "$__range")})'
+STARTED_RANGE = f'sum {BY_WF} ({total("n8n_workflow_started_total", "$__range")})'
+SUCCESS_RANGE = f'sum {BY_WF} ({total("n8n_workflow_success_total", "$__range")})'
+FAILED_RANGE = f'sum {BY_WF} ({total("n8n_workflow_failed_total", "$__range")})'
 ACTIVE_WF = f'max {BY_WF} (n8n_active_workflow_info{{{JOB}}})'
 
 
 def seen(metric, window):
-    """Set of workflow_id that had at least one `metric` event inside `window`.
-
-    Event-bus counters are created lazily on the first event and never
-    zero-initialised, so a counter whose only sample in the window is `1`
-    has no increase. Treat "series exists now but did not at the start of
-    the window" as an event too. Aggregated by workflow_id only so a
-    renamed workflow still joins onto its current name."""
-    sel = f'{metric}{{{JOB}}}'
-    return (f'(sum by (workflow_id) (increase({sel}[{window}])) > 0) '
-            f'or (sum by (workflow_id) ({sel}) '
-            f'unless sum by (workflow_id) ({sel} offset {window}))')
+    """Set of workflow_id with at least one `metric` event inside `window`.
+    Aggregated by workflow_id only so a renamed workflow still joins onto
+    its current name from n8n_active_workflow_info."""
+    return f'sum by (workflow_id) ({total(metric, window)}) > 0'
 
 
 SUCCESS_SEEN = seen("n8n_workflow_success_total", "$stale_window")
@@ -232,8 +248,8 @@ panels.append(stat(
     [target(EXEC_RANGE, instant=True)],
     0, 0, 6, 8,
     desc="All executions (success + failed, every mode) finished in the selected "
-         "time range. increase() over the execution-duration histogram count; "
-         "set the range to the billing period you care about.",
+         "time range, from the execution-duration histogram count. Set the range "
+         "to the billing period you care about.",
 ))
 panels.append(gauge(
     "Quota consumed in range",
@@ -264,7 +280,7 @@ panels.append(stat(
 # --- Row 2: daily volume -----------------------------------------------------
 panels.append(timeseries(
     "Daily execution volume by status",
-    [target(f'sum by (status) (increase(n8n_workflow_execution_duration_seconds_count{{{JOB}}}[1d]))',
+    [target(f'sum by (status) ({total(HIST_COUNT, "1d")})',
             legend="{{status}}", interval="1d")],
     0, 8, 24, 8, stacking="normal",
     desc="Trailing 24h increase sampled once a day, stacked success / failed. "
@@ -286,7 +302,8 @@ panels.append(table(
             "B", instant=True, fmt="table")],
     0, 16, 12, 8,
     desc="n8n_workflow_started_total by workflow over the range, with success "
-         "ratio. Needs the workflow_id / workflow_name label flags.",
+         "ratio. Needs the workflow_id / workflow_name label flags. Hidden "
+         "label \"ID\" disambiguates renamed workflows.",
     columns={"workflow_name": "Workflow", "workflow_id": "ID",
              "Value #A": "Executions", "Value #B": "Success ratio"},
     sort_by="Executions",
@@ -319,7 +336,7 @@ panels.append(table(
 panels.append(table(
     "Stale active workflows (no success in $stale_window)",
     [target(STALE, "A", instant=True, fmt="table"),
-     target(f'sum by (workflow_id) (increase(n8n_workflow_failed_total{{{JOB}}}[$stale_window])) '
+     target(f'sum by (workflow_id) ({total("n8n_workflow_failed_total", "$stale_window")}) '
             f'and on (workflow_id) ({STALE})', "B", instant=True, fmt="table")],
     0, 24, 12, 8,
     desc="Active workflows (n8n_active_workflow_info, leader main) with no "
@@ -334,7 +351,7 @@ panels.append(table(
 panels.append(table(
     "Zombie workflows (running, not edited in $zombie_window)",
     [target(ZOMBIE, "A", instant=True, fmt="table"),
-     target(f'sum by (workflow_id) (increase(n8n_workflow_started_total{{{JOB}}}[$zombie_window])) '
+     target(f'sum by (workflow_id) ({total("n8n_workflow_started_total", "$zombie_window")}) '
             f'and on (workflow_id) ({ZOMBIE})', "B", instant=True, fmt="table")],
     12, 24, 12, 8,
     desc="Active workflows that executed in $stale_window but had no observed "
