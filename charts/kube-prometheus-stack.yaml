@@ -169,8 +169,8 @@ grafana:
   #
   # Loki ships with multi-tenancy on; our Loki values file uses tenant_id
   # "1", so the X-Scope-OrgID header is set here. The n8n-postgres
-  # datasource is consumed by the n8n-governance dashboard, which runs
-  # raw SQL (no exporter / no Prometheus scrape).
+  # datasource is for ad-hoc SQL in Explore; no shipped dashboard reads it
+  # since governance moved to Prometheus.
   additionalDataSources:
     - name: Loki
       type: loki

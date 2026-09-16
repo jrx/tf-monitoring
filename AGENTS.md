@@ -33,7 +33,10 @@ Terraform Cloud workspace:
   `grafana_dashboard=1` label. Seven are the n8n Monitoring Pack, generated
   by `dashboards/import-monitoring-pack.py` from the upstream portable JSON
   (do not hand-edit those seven; edit the script and regenerate). Three are
-  local: governance (Postgres), audit events (Loki), traces (Prometheus).
+  local: governance (Prometheus), audit events (Loki), traces (Prometheus),
+  each with a `build-*.py` generator. `--portable` writes upstream-style
+  builds (`$ds` / `$loki` variables, schemaVersion 39) to
+  `dashboards/upstream/`, which `dashboards.tf` does not deploy.
 
 State: TFC workspace **`jrxhc/monitoring`** (see `backend.hcl`).
 Target cluster: `jrx-test` in `eu-north-1`. **Sandbox only** — see

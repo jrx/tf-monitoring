@@ -1,6 +1,7 @@
-# Wiring for the "n8n-postgres" Grafana datasource consumed by the
-# n8n-governance dashboard. The Secret below is also mounted by the
-# postgres-exporter release (exporters.tf).
+# Wiring for the "n8n-postgres" Grafana datasource. No shipped dashboard
+# reads it since governance moved to Prometheus; it stays for ad-hoc SQL in
+# Explore. The Secret below is also mounted by the postgres-exporter
+# release (exporters.tf).
 #
 # SECURITY NOTE: this datasource currently re-uses n8n's application DB
 # user (n8n's full read/write owner on the n8n schema). That means

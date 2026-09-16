@@ -124,8 +124,11 @@ than left permanently empty.
 │   ├── n8n-saturation.json
 │   ├── import-monitoring-pack.py
 │   ├── n8n-governance.json
+│   ├── build-governance-dashboard.py  # generator for n8n-governance.json
 │   ├── n8n-audit-events.json
 │   ├── build-audit-dashboard.py   # generator for n8n-audit-events.json
+│   ├── upstream/                  # --portable builds of the two above, for the
+│   │                              #   solutions-catalog pack; not deployed
 │   ├── n8n-traces.json
 │   └── build-traces-dashboard.py  # generator for n8n-traces.json
 └── backend.hcl              # TFC remote backend config
@@ -244,8 +247,8 @@ API within a few seconds.
    - Same for Postgres-backed dashboards: replace
      `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` with `n8n-postgres`.
    - **Check for hardcoded `dataset` fields**: some dashboard authors
-     export with their local database name baked in (e.g. the n8n
-     governance dashboard hardcodes `"dataset": "n8n_data"`). Grafana's `grafana-postgresql-datasource`
+     export with their local database name baked in (the grafana.com n8n
+     dashboards hardcode `"dataset": "n8n_data"`). Grafana's `grafana-postgresql-datasource`
      plugin honors the `dataset` field; when it doesn't match the
      datasource's database, panels show *"Configure a default database
      for the dashboard"*. `dashboards.tf` already substitutes
@@ -286,7 +289,7 @@ active mode). To pick up upstream changes: clone the repo, bump
 | `n8n-database.json` | n8n Monitoring Pack | Prometheus (postgres-exporter + n8n) | RDS transactions, connections by state, n8n pool utilisation / pending / acquire latency, cache hit ratio, deadlocks, dead tuples, insert rates. PgBouncer panels replaced by a note (not deployed). |
 | `n8n-execdata.json` | n8n Monitoring Pack | Prometheus | Execution data reads/writes by mode and result, write bytes, latency and payload-size p95, unreadable bundles. Storage mode panel shows the active mode (`db` here) instead of asserting S3. |
 | `n8n-saturation.json` | n8n Monitoring Pack | Prometheus (cAdvisor, kube-state-metrics, node-exporter) | Event-loop lag and heap by role, pod CPU / throttling / memory, OOMKills, restarts, replicas vs autoscaler, node CPU, pod age. |
-| `n8n-governance.json` | hand-built | PostgreSQL (n8n RDS) | Workflow & quota governance: active vs inactive workflows, ownership, tag coverage, recently changed workflows. |
+| `n8n-governance.json` | hand-built via `dashboards/build-governance-dashboard.py` | Prometheus | Governance & quota, pack style: executions in range against a `$quota` textbox, lifetime production executions, daily volume by status, top workflows by executions / failures, stale active workflows (no success in 7d), zombie workflows (running, no `n8n.audit.workflow.updated` in 30d), instance totals. Needs `N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS` plus the workflow-label flags; the 7d / 30d tables need matching retention. No SQL: the earlier Postgres version's project breakdown has no metric equivalent and was dropped. |
 | `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
 | `n8n-traces.json` | hand-built via `dashboards/build-traces-dashboard.py` | Prometheus | RED metrics (rate / errors / p50-p95-p99 duration) derived from n8n's OpenTelemetry spans by the Jaeger spanmetrics connector, scraped into Prometheus. Per-workflow breakdown + span-type split. Requires OpenTelemetry tracing enabled (see below); empty until then. For individual trace search use Explore → Jaeger. |
 
@@ -301,9 +304,10 @@ active mode). To pick up upstream changes: clone the repo, bump
 
 ## n8n PostgreSQL datasource
 
-The `n8n-governance` dashboard reads n8n's RDS
-Postgres database directly via Grafana's built-in `postgres`
-datasource plugin (datasource UID `n8n-postgres`). Wiring:
+No shipped dashboard reads n8n's database any more (governance moved to
+Prometheus). The `n8n-postgres` datasource stays provisioned for ad-hoc
+queries in Explore, and its Secret is shared with the postgres-exporter.
+Wiring:
 
 - `postgres-datasource.tf` reads the n8n Deployment's env to learn the
   RDS host / port / db / user, and copies n8n's DB password from the
