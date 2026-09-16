@@ -11,7 +11,7 @@ Into a single Kubernetes namespace (default: `monitoring`):
 | Component | Helm chart | Purpose |
 |---|---|---|
 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics | `prometheus-community/kube-prometheus-stack` | Metrics, dashboards, alerting |
-| Loki (SingleBinary, filesystem on a gp3 PVC) | `grafana/loki` | Log storage (persistent) |
+| Loki (Monolithic, filesystem on a gp3 PVC) | `grafana-community/loki` | Log storage (persistent) |
 | Grafana Alloy | `grafana/alloy` | Pod-log collection + n8n Enterprise Log-Streaming syslog receiver; ships both to Loki |
 | Jaeger (all-in-one, in-memory) | `jaegertracing/jaeger` | OpenTelemetry trace backend for n8n workflow/node spans; OTLP receiver + query UI; spanmetrics connector publishes RED metrics to Prometheus |
 
@@ -104,10 +104,10 @@ Until then the scrape config is correct but produces zero samples.
 |---|---|---|---|
 | `aws_region` | AWS region of the target EKS cluster. | `string` | `eu-north-1` |
 | `monitoring_namespace` | Namespace to install everything into. | `string` | `monitoring` |
-| `kube_prometheus_stack_chart_version` | Pinned chart version. | `string` | `85.2.0` |
-| `loki_chart_version` | Pinned chart version. | `string` | `7.0.0` |
-| `alloy_chart_version` | Pinned chart version. | `string` | `1.8.1` |
-| `jaeger_chart_version` | Pinned chart version. | `string` | `4.8.0` |
+| `kube_prometheus_stack_chart_version` | Pinned chart version. | `string` | `91.4.1` |
+| `loki_chart_version` | Pinned chart version. | `string` | `18.13.1` |
+| `alloy_chart_version` | Pinned chart version. | `string` | `1.12.1` |
+| `jaeger_chart_version` | Pinned chart version. | `string` | `4.13.1` |
 | `storage_class_name` | StorageClass for the Prometheus / Alertmanager / Loki PVCs. | `string` | `gp3` |
 | `loki_retention_period` | Loki log retention (compactor deletes older chunks). `0` or a multiple of 24h. | `string` | `168h` |
 
@@ -116,10 +116,13 @@ Find newer chart versions with:
 ```sh
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add grafana              https://grafana.github.io/helm-charts
+helm repo add grafana-community    https://grafana-community.github.io/helm-charts
+helm repo add jaegertracing        https://jaegertracing.github.io/helm-charts
 helm repo update
 helm search repo prometheus-community/kube-prometheus-stack --versions | head
-helm search repo grafana/loki  --versions | head
+helm search repo grafana-community/loki --versions | head
 helm search repo grafana/alloy --versions | head
+helm search repo jaegertracing/jaeger --versions | head
 ```
 
 ## Outputs
@@ -484,6 +487,16 @@ consumer instead.
   `X-Scope-OrgID: 1`.
 
 ## Chart version policy
+
+Chart pins were checked against the official Helm repositories on 2026-09-16.
+They deploy Prometheus Operator 0.94.0, Prometheus 3.14.0, Alertmanager 0.34.0,
+Grafana 13.2.2, node-exporter 1.12.1, kube-state-metrics 2.20.0, Loki 3.7.7,
+Alloy 1.19.2, and Jaeger 2.20.0 using the charts' bundled image versions.
+
+The open-source Loki chart now uses the
+[`grafana-community` repository](https://github.com/grafana-community/helm-charts/tree/main/charts/loki).
+Its deployment mode is named `Monolithic`; values remain under `singleBinary`.
+The filesystem PVC, retention, gateway address, and tenant configuration are unchanged.
 
 All Helm chart versions are pinned via variables so applies are
 reproducible. Bump deliberately after reviewing each chart's CHANGELOG —

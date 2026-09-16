@@ -14,30 +14,32 @@ variable "monitoring_namespace" {
 # after reviewing the chart's CHANGELOG. Find the latest with:
 #   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 #   helm repo add grafana              https://grafana.github.io/helm-charts
+#   helm repo add grafana-community    https://grafana-community.github.io/helm-charts
+#   helm repo add jaegertracing        https://jaegertracing.github.io/helm-charts
 #   helm search repo <repo>/<chart> --versions
 
 variable "kube_prometheus_stack_chart_version" {
   description = "Pinned chart version for prometheus-community/kube-prometheus-stack."
   type        = string
-  default     = "85.2.0"
+  default     = "91.4.1"
 }
 
 variable "loki_chart_version" {
-  description = "Pinned chart version for grafana/loki."
+  description = "Pinned chart version for grafana-community/loki."
   type        = string
-  default     = "7.0.0"
+  default     = "18.13.1"
 }
 
 variable "alloy_chart_version" {
   description = "Pinned chart version for grafana/alloy."
   type        = string
-  default     = "1.8.1"
+  default     = "1.12.1"
 }
 
 variable "jaeger_chart_version" {
   description = "Pinned chart version for jaegertracing/jaeger (all-in-one, in-memory)."
   type        = string
-  default     = "4.8.0"
+  default     = "4.13.1"
 }
 
 variable "storage_class_name" {

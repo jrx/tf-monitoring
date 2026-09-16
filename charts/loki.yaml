@@ -1,15 +1,14 @@
-# Values for grafana/loki (chart v7.x).
-# Reference: https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
+# Values for grafana-community/loki (chart v18.x).
+# Reference: https://github.com/grafana-community/helm-charts/blob/main/charts/loki/values.yaml
 #
-# SingleBinary deployment, filesystem storage on a persistent EBS gp3 PVC.
+# Monolithic deployment, filesystem storage on a persistent EBS gp3 PVC.
 # Logs survive pod restarts/reschedules. This is still single-node filesystem
 # storage (not S3 / SimpleScalable) — appropriate for this scale; move to S3 +
 # SimpleScalable for HA or high volume.
 #
-# NOTE: no retention/compaction limit is set, so the PVC can fill over time.
-# Add a compactor + retention policy as a follow-up before heavy use.
+# Retention is configured below through loki_retention_period.
 
-deploymentMode: SingleBinary
+deploymentMode: Monolithic
 
 loki:
   commonConfig:
@@ -43,7 +42,7 @@ loki:
     delete_request_store: filesystem
     retention_delete_delay: 2h
 
-# Scale all non-SingleBinary deployments to zero.
+# Scale all non-monolithic deployments to zero.
 write:
   replicas: 0
 read:
@@ -71,13 +70,19 @@ singleBinary:
 
 # Disable optional components that add noise on a sandbox cluster and would
 # require Prometheus Operator CRDs at install time.
-# NB: in chart 7.x these moved from monitoring.* to top-level.
-serviceMonitor:
-  enabled: false
+monitoring:
+  serviceMonitor:
+    enabled: false
 lokiCanary:
   enabled: false
 test:
   enabled: false
+
+# The community chart enables a gateway metrics exporter by default.
+# Keep the sandbox gateway without the extra exporter sidecar.
+gateway:
+  metrics:
+    enabled: false
 
 chunksCache:
   enabled: false

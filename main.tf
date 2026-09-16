@@ -35,11 +35,11 @@ resource "helm_release" "kube_prometheus_stack" {
   ]
 }
 
-# Loki — SingleBinary mode, filesystem storage on a persistent gp3 PVC
+# Loki: Monolithic mode, filesystem storage on a persistent gp3 PVC
 # (charts/loki.yaml). Logs survive restarts; move to S3 for HA / high volume.
 resource "helm_release" "loki" {
   name       = "loki"
-  repository = "https://grafana.github.io/helm-charts"
+  repository = "https://grafana-community.github.io/helm-charts"
   chart      = "loki"
   version    = var.loki_chart_version
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
