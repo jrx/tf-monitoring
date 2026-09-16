@@ -26,34 +26,58 @@ tenant `1`.
 
 In addition to everything `kube-prometheus-stack` discovers by default
 (API server, kubelet, cAdvisor, kube-state-metrics, node-exporter, the
-operator's own ServiceMonitors), this module declares two extra
-`ServiceMonitor` resources in the kube-prometheus-stack values file:
+operator's own ServiceMonitors), this module declares three extra
+`ServiceMonitor` resources in the kube-prometheus-stack values file,
+plus one each from the PostgreSQL and Redis exporter charts:
 
 | ServiceMonitor | Namespace | Selector | Port / Path |
 |---|---|---|---|
-| `n8n-main` | `n8n` | `name=n8n, instance=n8n` **and** `component` label absent | `http` (5678) `/metrics` |
+| `n8n` | `n8n` | `name=n8n, instance=n8n` (all three role Services) | `http` (5678) `/metrics` |
 | `keda` | `keda` | `app=keda-operator-metrics-apiserver` | `metrics` (8080) `/metrics` |
+| `jaeger-spanmetrics` | `monitoring` | `name=jaeger, instance=jaeger` | `span-metrics` (8889) `/metrics` |
+| `postgres-exporter-*` | `monitoring` | chart-managed (`exporters.tf`) | `http` (9187) `/metrics` |
+| `redis-exporter-*` | `monitoring` | chart-managed (`exporters.tf`) | `redis-exporter` (9121) `/metrics` |
 
-**Only `n8n-main` is scraped** — n8n mounts the Prometheus `/metrics`
-route on the default server process only. The webhook-processor
-(running `n8n webhook`) and the worker (running `n8n worker`) **do
-not** expose `/metrics` even when `N8N_METRICS=true` is set on those
-pods; the route is simply not registered by the n8n CLI in those
-modes. Webhook-processor responds only on `/healthz`; the worker has
-no HTTP server at all.
+**All three n8n roles are scraped.** Main, webhook-processor and worker
+all serve `/metrics` on 5678 once `N8N_METRICS=true` (verified live on
+n8n 2.39.6). The n8n chart ships Services for main and
+webhook-processor; the `tf-n8n` root module adds a matching `n8n-worker`
+Service. The ServiceMonitor relabels every target to `job="n8n"` and
+copies the pod's `app.kubernetes.io/component` label to `component`
+(`main` / `webhook-processor` / `worker`). The n8n Monitoring Pack
+dashboards depend on both labels.
 
-**`n8n-main` scrape is gated on an upstream change** — the n8n chart
-does not set `N8N_METRICS=true` by default, so `/metrics` returns
-HTTP 404 until the `n8n` Terraform Cloud workspace's Helm values
-include:
+**The producer side lives in `tf-n8n`.** `n8n_metrics_enabled = true`
+sets `N8N_METRICS`, and `local.n8n_metrics_env` there turns on the
+optional `N8N_METRICS_INCLUDE_*` families (DB pool, cache, execution
+data, webhook and HTTP route histograms, event-bus workflow counters with
+`workflow_id` / `workflow_name` labels, `n8n_workflow_info`, queue job
+counts). Without those flags the pack dashboards show only the Node.js
+runtime and Kubernetes panels.
 
-```yaml
-main:
-  extraEnv:
-    N8N_METRICS: "true"
-```
+### PostgreSQL and Redis exporters
 
-Until then the scrape config is correct but produces zero samples.
+`exporters.tf` installs `prometheus-community/prometheus-postgres-exporter`
+and `prometheus-community/prometheus-redis-exporter` into `monitoring`:
+
+- **postgres-exporter** connects to the n8n RDS instance with the same
+  user and `n8n-postgres-grafana` Secret as the Grafana datasource
+  (`sslmode=require`). Default collectors only; provides
+  `pg_stat_activity_count`, `pg_stat_database_*`, `pg_stat_user_tables_*`.
+  Same sandbox caveat as the datasource: this is n8n's application user.
+- **redis-exporter** connects to the ElastiCache endpoint exported by the
+  `n8n` workspace (`redis_endpoint` / `redis_port`; plaintext, no AUTH).
+  `--check-single-keys` lists the five Bull state keys
+  (`bull:jobs:{wait,active,delayed,failed,paused}`) so `redis_key_size`
+  gives queue depth without scanning the keyspace. The n8n Terraform
+  module's own optional redis-exporter stays off; it only watches two keys.
+
+Because the Redis outputs are new, apply the `n8n` workspace before
+planning this one, or the remote-state lookup fails.
+
+**PgBouncer is not deployed.** The pack's "Database & Pooling" dashboard
+has three PgBouncer panels; they are replaced by a text panel here rather
+than left permanently empty.
 
 ## Prerequisites
 
@@ -83,16 +107,28 @@ Until then the scrape config is correct but produces zero samples.
 ├── outputs.tf               # namespace, cluster, Grafana service/secret names
 ├── charts/
 │   ├── kube-prometheus-stack.yaml
+│   ├── postgres-exporter.yaml # prometheus-postgres-exporter values
+│   ├── redis-exporter.yaml    # prometheus-redis-exporter values
 │   ├── loki.yaml
 │   ├── alloy.yaml           # Helm values only — points at alloy-config CM
 │   ├── alloy-config.river   # Alloy River pipeline (logs + syslog + PRI parsing)
 │   └── jaeger.yaml          # Jaeger all-in-one, in-memory (OTLP -> query)
+├── exporters.tf             # postgres-exporter + redis-exporter Helm releases
 ├── dashboards/
-│   ├── n8n-system-health.json
-│   ├── n8n-workflow-execution-analytics.json
+│   ├── n8n-baseline.json          # n8n Monitoring Pack (7 files), generated by
+│   ├── n8n-business.json          #   import-monitoring-pack.py from the
+│   ├── n8n-database.json          #   upstream portable JSON
+│   ├── n8n-execdata.json
+│   ├── n8n-golden.json
+│   ├── n8n-queue.json
+│   ├── n8n-saturation.json
+│   ├── import-monitoring-pack.py
 │   ├── n8n-governance.json
+│   ├── build-governance-dashboard.py  # generator for n8n-governance.json
 │   ├── n8n-audit-events.json
 │   ├── build-audit-dashboard.py   # generator for n8n-audit-events.json
+│   ├── upstream/                  # --portable builds of the two above, for the
+│   │                              #   solutions-catalog pack; not deployed
 │   ├── n8n-traces.json
 │   └── build-traces-dashboard.py  # generator for n8n-traces.json
 └── backend.hcl              # TFC remote backend config
@@ -169,7 +205,8 @@ kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090
 Then open:
 
 - <http://localhost:9090/targets> — scrape target health (look here to
-  confirm `n8n-main` and `keda` are `UP`)
+  confirm `n8n` (four endpoints across three roles), `keda`, and the two
+  exporters are `UP`)
 - <http://localhost:9090/graph> — PromQL console, e.g.
   `n8n_process_resident_memory_bytes` or `sum by (job) (up)`
 - <http://localhost:9090/alerts> — alerts loaded from the chart's
@@ -210,9 +247,8 @@ API within a few seconds.
    - Same for Postgres-backed dashboards: replace
      `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` with `n8n-postgres`.
    - **Check for hardcoded `dataset` fields**: some dashboard authors
-     export with their local database name baked in (e.g. the n8n
-     workflow-execution-analytics dashboard hardcodes
-     `"dataset": "n8n_data"`). Grafana's `grafana-postgresql-datasource`
+     export with their local database name baked in (the grafana.com n8n
+     dashboards hardcode `"dataset": "n8n_data"`). Grafana's `grafana-postgresql-datasource`
      plugin honors the `dataset` field; when it doesn't match the
      datasource's database, panels show *"Configure a default database
      for the dashboard"*. `dashboards.tf` already substitutes
@@ -230,13 +266,30 @@ from Grafana's UI back to the file is **not** automatic — use
 Grafana's *Dashboard settings → JSON Model* to copy the new JSON back
 into the file.
 
+**n8n Monitoring Pack**
+
+Seven dashboards come from n8n's
+[solutions-catalog](https://github.com/n8n-io/solutions-catalog/blob/main/validation/dashboards/n8n%20Monitoring%20Pack.md)
+(`validation/dashboards/dashboards/portable/`). Do not edit those seven
+JSON files by hand; `dashboards/import-monitoring-pack.py` regenerates
+them from a clone of the upstream repo and applies the local adaptations
+(literal `prometheus` UID instead of `$ds`, `job` / `ns` default to
+`n8n`, PgBouncer panels replaced by a note, storage-mode panel shows the
+active mode). To pick up upstream changes: clone the repo, bump
+`UPSTREAM_COMMIT` in the script, run it, review the diff.
+
 **Shipped dashboards**
 
 | File | Source | Datasource | What it shows |
 |---|---|---|---|
-| `n8n-system-health.json` | [grafana.com/dashboards/24474](https://grafana.com/grafana/dashboards/24474-n8n-system-health-overview/), rev 1, `${DS_PROMETHEUS}` → `prometheus` | Prometheus | n8n's Node.js runtime: CPU, memory, heap, event-loop latency, GC, file descriptors, instance metadata. Requires `N8N_METRICS=true` upstream. |
-| `n8n-workflow-execution-analytics.json` | [grafana.com/dashboards/24475](https://grafana.com/grafana/dashboards/24475-n8n-workflow-execution-analytics/), rev 1, `${DS_GRAFANA-POSTGRESQL-DATASOURCE}` → `n8n-postgres` | PostgreSQL (n8n RDS) | Workflow execution analytics by querying the n8n DB directly (`execution_entity`, `workflow_entity`): success/error/crash counts, p50/p95/p99 duration, per-workflow stats, tag breakdowns. |
-| `n8n-governance.json` | hand-built | PostgreSQL (n8n RDS) | Workflow & quota governance: active vs inactive workflows, ownership, tag coverage, recently changed workflows. |
+| `n8n-baseline.json` | n8n Monitoring Pack, via `dashboards/import-monitoring-pack.py` | Prometheus | One-page overview: executions/s by mode, failure ratio, p95 duration, slow webhooks, active workflows, queue backlog (n8n view), DB pool, event-loop lag, heap, restarts. |
+| `n8n-golden.json` | n8n Monitoring Pack | Prometheus | Golden signals: HTTP ingest by role and status code, execution rate / failure ratio / quantiles, webhook latency, failed executions by workflow, multi-main leader count, seconds since last activity. |
+| `n8n-business.json` | n8n Monitoring Pack | Prometheus | Per-workflow view: success rate and slowest workflows by name (joins `n8n_workflow_info`), executions/day projection, cache hit ratio. |
+| `n8n-queue.json` | n8n Monitoring Pack | Prometheus (redis-exporter, kube-state-metrics) | Bull queue depth by key from Redis, failed jobs, completions/s, worker replicas and restarts, Redis commands/s. |
+| `n8n-database.json` | n8n Monitoring Pack | Prometheus (postgres-exporter + n8n) | RDS transactions, connections by state, n8n pool utilisation / pending / acquire latency, cache hit ratio, deadlocks, dead tuples, insert rates. PgBouncer panels replaced by a note (not deployed). |
+| `n8n-execdata.json` | n8n Monitoring Pack | Prometheus | Execution data reads/writes by mode and result, write bytes, latency and payload-size p95, unreadable bundles. Storage mode panel shows the active mode (`db` here) instead of asserting S3. |
+| `n8n-saturation.json` | n8n Monitoring Pack | Prometheus (cAdvisor, kube-state-metrics, node-exporter) | Event-loop lag and heap by role, pod CPU / throttling / memory, OOMKills, restarts, replicas vs autoscaler, node CPU, pod age. |
+| `n8n-governance.json` | hand-built via `dashboards/build-governance-dashboard.py` | Prometheus | Governance & quota, pack style: executions in range against a `$quota` textbox, lifetime production executions, daily volume by status, top workflows by executions / failures, stale active workflows (no success in 7d), zombie workflows (running, no `n8n.audit.workflow.updated` in 30d), instance totals. Needs `N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS` plus the workflow-label flags; the 7d / 30d tables need matching retention. No SQL: the earlier Postgres version's project breakdown has no metric equivalent and was dropped. |
 | `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
 | `n8n-traces.json` | hand-built via `dashboards/build-traces-dashboard.py` | Prometheus | RED metrics (rate / errors / p50-p95-p99 duration) derived from n8n's OpenTelemetry spans by the Jaeger spanmetrics connector, scraped into Prometheus. Per-workflow breakdown + span-type split. Requires OpenTelemetry tracing enabled (see below); empty until then. For individual trace search use Explore → Jaeger. |
 
@@ -251,9 +304,10 @@ into the file.
 
 ## n8n PostgreSQL datasource
 
-The `n8n-workflow-execution-analytics` dashboard reads n8n's RDS
-Postgres database directly via Grafana's built-in `postgres`
-datasource plugin (datasource UID `n8n-postgres`). Wiring:
+No shipped dashboard reads n8n's database any more (governance moved to
+Prometheus). The `n8n-postgres` datasource stays provisioned for ad-hoc
+queries in Explore, and its Secret is shared with the postgres-exporter.
+Wiring:
 
 - `postgres-datasource.tf` reads the n8n Deployment's env to learn the
   RDS host / port / db / user, and copies n8n's DB password from the

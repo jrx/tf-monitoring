@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
 """Generate the n8n audit-events Grafana dashboard as deterministic JSON.
 
-Output: dashboards/n8n-audit-events.json under this Terraform module.
-The repo's dashboard provisioner picks it up automatically on terraform apply.
+    python3 dashboards/build-audit-dashboard.py             # local build
+    python3 dashboards/build-audit-dashboard.py --portable  # upstream build
+
+Local build  -> dashboards/n8n-audit-events.json
+    Hardcoded `loki` datasource UID and the `{source="n8n-log-streaming"}`
+    stream selector this module's Alloy pipeline sets. Picked up by
+    dashboards.tf on terraform apply.
+Portable build -> dashboards/upstream/n8n-audit-events.json
+    `$loki` datasource variable and a `$stream` textbox holding the stream
+    selector, uid n8n-audit-events-portable, schemaVersion 39, title in the
+    n8n Monitoring Pack's "n8n — <Name>" style. Not picked up by
+    dashboards.tf (fileset is non-recursive).
+
+Data contract: n8n Enterprise Log Streaming, syslog destination, received by
+Grafana Alloy (loki.source.syslog, RFC 5424) and shipped to Loki with the
+JSON event as the log line. Every panel does `| json`, so the fields are
+n8n's own event schema (eventName, payload_userId, payload__email,
+payload_workflowName, ...). The `severity` / `facility` labels are derived
+from the syslog PRI byte by the receiver; a receiver that does not set them
+leaves the "Severity & facility" row empty and nothing else breaks.
 """
 import json
 import sys
+from pathlib import Path
 
-LOKI = {"type": "loki", "uid": "loki"}
+PORTABLE = "--portable" in sys.argv
+
+LOKI = {"type": "loki", "uid": "${loki}" if PORTABLE else "loki"}
+# Stream selector. Local: literal label the Alloy pipeline sets. Portable:
+# textbox variable so a different receiver can point the dashboard at its
+# own stream without editing 27 queries.
+SEL = "{${stream:raw}}" if PORTABLE else '{source="n8n-log-streaming"}'
 
 NEXT_ID = 0
 def nid():
@@ -60,22 +85,21 @@ def stat(title, expr, x, y, w=6, h=4, *, unit="short", thresholds=None, descript
             "overrides": [],
         },
         "options": {
+            "orientation": "auto",
             "reduceOptions": {
                 "calcs": ["lastNotNull"],
                 "fields": "",
                 "values": False,
             },
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "textMode": "auto",
-            "justifyMode": "auto",
         },
-        "transparent": True,
     }
 
 
 def timeseries(title, expr, x, y, w, h, *, legend_format=None,
-               description="", unit="short", calcs=("last", "max", "sum")):
+               description="", unit="short"):
     target = {
         "datasource": LOKI,
         "expr": expr,
@@ -95,30 +119,27 @@ def timeseries(title, expr, x, y, w, h, *, legend_format=None,
             "defaults": {
                 "unit": unit,
                 "custom": {
-                    "drawStyle": "line",
-                    "lineInterpolation": "stepAfter",
+                    "drawStyle": "bars",
                     "lineWidth": 1,
-                    "fillOpacity": 12,
+                    "fillOpacity": 80,
                     "stacking": {"mode": "normal", "group": "A"},
                     "showPoints": "never",
-                    "spanNulls": True,
-                    "pointSize": 4,
-                    "axisPlacement": "auto",
                 },
-                "color": {"mode": "palette-classic"},
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [{"color": "green", "value": None}],
+                },
             },
             "overrides": [],
         },
         "options": {
             "legend": {
-                "calcs": list(calcs),
-                "displayMode": "table",
-                "placement": "right",
+                "displayMode": "list",
+                "placement": "bottom",
                 "showLegend": True,
             },
             "tooltip": {"mode": "multi", "sort": "desc"},
         },
-        "transparent": True,
     }
 
 
@@ -189,7 +210,6 @@ def table(title, expr, x, y, w, h, *, description="",
             "sortBy": [{"displayName": sort_by, "desc": True}] if sort_by else [],
         },
         "transformations": transformations,
-        "transparent": True,
     }
     return panel
 
@@ -218,17 +238,16 @@ def logs_panel(title, expr, x, y, w, h, *, description=""):
             "dedupStrategy": "none",
             "sortOrder": "Descending",
         },
-        "transparent": True,
     }
 
 
 # Common LogQL fragments
-AUDIT_FILTER  = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\..*`'
-USER_FILTER   = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\.user\\..*`'
-WF_FILTER     = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\.workflow\\..*`'
-CRED_FILTER   = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*`'
-VARPKG_FILTER = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\.(variable|package)\\..*`'
-EXEC_FILTER   = '{source="n8n-log-streaming"} | json | eventName=~`n8n\\.audit\\.execution\\..*`'
+AUDIT_FILTER  = f'{SEL} | json | eventName=~`n8n\\.audit\\..*`'
+USER_FILTER   = f'{SEL} | json | eventName=~`n8n\\.audit\\.user\\..*`'
+WF_FILTER     = f'{SEL} | json | eventName=~`n8n\\.audit\\.workflow\\..*`'
+CRED_FILTER   = f'{SEL} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*`'
+VARPKG_FILTER = f'{SEL} | json | eventName=~`n8n\\.audit\\.(variable|package)\\..*`'
+EXEC_FILTER   = f'{SEL} | json | eventName=~`n8n\\.audit\\.execution\\..*`'
 
 
 panels = []
@@ -255,7 +274,7 @@ panels.append(stat(
 ))
 panels.append(stat(
     "Failed login + email events",
-    'sum(count_over_time({source="n8n-log-streaming"} | json '
+    f'sum(count_over_time({SEL} | json '
     '| eventName=~`n8n\\.audit\\.user\\.(login|email)\\.failed` [$__range]))',
     x=18, y=1, w=6, h=4,
     description="Auth and email-send failures. Spikes warrant investigation.",
@@ -276,14 +295,14 @@ panels.append(stat(
 panels.append(row("Severity & facility", 5))
 panels.append(timeseries(
     "Events by severity",
-    'sum by (severity) (count_over_time({source="n8n-log-streaming"} [$__interval]))',
+    f'sum by (severity) (count_over_time({SEL} [$__interval]))',
     x=0, y=6, w=12, h=7,
     legend_format="{{severity}}",
     description="All log-streaming events split by syslog severity. Derived from the syslog PRI field, not the message body.",
 ))
 panels.append(table(
     "Counts by severity & facility",
-    'sum by (severity, facility) (count_over_time({source="n8n-log-streaming"} [$__range]))',
+    f'sum by (severity, facility) (count_over_time({SEL} [$__range]))',
     x=12, y=6, w=12, h=7,
     description="Cross-tab of severity × facility. Useful to spot misconfigured producers or warning/error spikes.",
     rename={"severity": "Severity", "facility": "Facility", "Value": "Count"},
@@ -304,7 +323,7 @@ panels.append(timeseries(
 panels.append(row("Identity & access", 22))
 panels.append(timeseries(
     "Auth & user lifecycle",
-    'sum by (eventName) (count_over_time({source="n8n-log-streaming"} | json '
+    f'sum by (eventName) (count_over_time({SEL} | json '
     '| eventName=~`n8n\\.audit\\.user\\.(login|signedup|invited|deleted|reset)\\..*` [$__interval]))',
     x=0, y=23, w=12, h=8,
     legend_format="{{eventName}}",
@@ -426,7 +445,7 @@ panels.append(table(
 panels.append(row("Raw audit stream", 67))
 panels.append(logs_panel(
     "Recent audit events",
-    '{source="n8n-log-streaming"} | json '
+    f'{SEL} | json '
     '| eventName=~`n8n\\.audit\\..*` '
     # Actor first, then severity + eventName, then context fields.
     # Falls back from email -> user:UUID -> "(no user)" so every line is
@@ -443,30 +462,57 @@ panels.append(logs_panel(
 ))
 
 
+templating = []
+if PORTABLE:
+    templating.append({
+        "type": "datasource", "name": "loki", "label": "Loki",
+        "query": "loki", "hide": 0, "refresh": 1, "regex": "",
+        "multi": False, "includeAll": False, "current": {}, "options": [],
+    })
+    templating.append({
+        "type": "textbox", "name": "stream", "label": "Stream selector",
+        "description": "Loki label matcher(s) identifying the n8n log-streaming "
+                       "stream, without the braces.",
+        "query": 'source="n8n-log-streaming"', "hide": 0,
+        "current": {"selected": True, "text": 'source="n8n-log-streaming"',
+                    "value": 'source="n8n-log-streaming"'},
+        "options": [{"selected": True, "text": 'source="n8n-log-streaming"',
+                     "value": 'source="n8n-log-streaming"'}],
+    })
+
 dashboard = {
-    "uid": "n8n-audit-events",
-    "title": "n8n audit events",
-    "description": "Enterprise Log Streaming: audit-event view "
-                   "sourced from Loki tenant_id=1, label source=\"n8n-log-streaming\".",
-    "tags": ["n8n", "audit", "loki", "log-streaming"],
+    "id": None,
+    "uid": "n8n-audit-events-portable" if PORTABLE else "n8n-audit-events",
+    "title": "n8n — Audit Events" if PORTABLE else "n8n Audit Events",
+    "description": (
+        "Who did what: n8n Enterprise Log Streaming audit events (n8n.audit.*) "
+        "read from Loki. Identity and access, per-user attribution, workflow "
+        "lifecycle, credential / API key / MFA changes, execution-data reveals, "
+        "raw event stream. Needs a licence with Log Streaming, a syslog "
+        "destination pointed at a Loki-shipping receiver, and the JSON event as "
+        "the log line. Generated by dashboards/build-audit-dashboard.py."
+    ),
+    "tags": ["n8n", "portable"] if PORTABLE else ["n8n", "audit", "loki", "log-streaming"],
+    "editable": True,
+    "graphTooltip": 1,
     "timezone": "browser",
-    "schemaVersion": 42,
+    "schemaVersion": 39 if PORTABLE else 42,
     "version": 1,
     "refresh": "30s",
     "time": {"from": "now-6h", "to": "now"},
     "timepicker": {},
-    "templating": {"list": []},
+    "templating": {"list": templating},
     "annotations": {"list": []},
-    "preload": False,
-    "weekStart": "",
     # Cross-dashboard nav: dropdown of every dashboard tagged "n8n".
-    "links": [{"asDropdown": True, "icon": "external link", "includeVars": False,
-               "keepTime": True, "tags": ["n8n"], "targetBlank": False,
-               "title": "n8n dashboards", "type": "dashboards"}],
+    "links": [] if PORTABLE else [{
+        "asDropdown": True, "icon": "external link", "includeVars": False,
+        "keepTime": True, "tags": ["n8n"], "targetBlank": False,
+        "title": "n8n dashboards", "type": "dashboards"}],
     "panels": panels,
 }
 
-out = "/Users/jan/code/terraform/src/tf-monitoring/dashboards/n8n-audit-events.json"
-with open(out, "w") as f:
-    json.dump(dashboard, f, indent=2)
-print(f"wrote {out}  ({sum(1 for _ in open(out))} lines, {len(panels)} panels)")
+here = Path(__file__).resolve().parent
+out = (here / "upstream" if PORTABLE else here) / "n8n-audit-events.json"
+out.parent.mkdir(exist_ok=True)
+out.write_text(json.dumps(dashboard, indent=2, ensure_ascii=False) + "\n")
+print(f"wrote {out.relative_to(here.parent)}  ({len(panels)} panels)")

@@ -23,8 +23,8 @@ locals {
   #
   # Currently handles:
   # - `"dataset": "n8n_data"` -> `"dataset": "<var.n8n_db_name>"`
-  #   The n8n workflow-execution-analytics dashboard's author hardcoded
-  #   the database name `n8n_data` in some panel targets. Grafana's new
+  #   n8n's grafana.com dashboards hardcode the database name `n8n_data`
+  #   in panel targets (no shipped dashboard does today). Grafana's new
   #   `grafana-postgresql-datasource` plugin honors that `dataset` field
   #   and prompts the user to "configure a default database" when it
   #   doesn't match the datasource's database.

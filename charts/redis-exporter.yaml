@@ -1,0 +1,36 @@
+# Values for prometheus-community/prometheus-redis-exporter.
+# Reference: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus-redis-exporter/values.yaml
+#
+# Feeds redis_commands_processed_total and redis_key_size{key="bull:jobs:*"}
+# for the n8n Monitoring Pack "Queue & Workers" dashboard. The n8n Terraform
+# module ships its own optional redis-exporter (redis_exporter_enabled) but
+# it only watches the wait/active keys and exposes no way to add more, so it
+# stays off upstream and this monitoring-owned exporter is the single one.
+#
+# Redis is ElastiCache without TLS or AUTH (tf-n8n leaves
+# redis_transit_encryption_enabled at its default). If that changes, set
+# redisTlsConfig / auth here to match.
+
+redisAddress: redis://${redis_host}:${redis_port}
+
+extraArgs:
+  # Bull keeps one Redis key per job state under <prefix>:<queue>:<state>.
+  # n8n's defaults are prefix `bull` and queue `jobs` (tf-n8n leaves
+  # redis_key_prefix null, so the default holds). Listing the exact keys
+  # is a direct lookup per scrape; `check-keys` would SCAN the keyspace.
+  #   wait / active / paused  -> lists
+  #   delayed / failed        -> sorted sets
+  # redis_key_size reports list length / zset cardinality for each.
+  check-single-keys: "bull:jobs:wait,bull:jobs:active,bull:jobs:delayed,bull:jobs:failed,bull:jobs:paused"
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  timeout: 10s
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

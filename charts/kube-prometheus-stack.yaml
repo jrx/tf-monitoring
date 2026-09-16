@@ -50,20 +50,22 @@ prometheus:
   #
   # NB: the n8n workloads expose /metrics on port 5678 only when the n8n
   # pods are started with N8N_METRICS=true (set in the n8n workspace's
-  # Helm values). Until that env var is enabled upstream, these scrapes
-  # return HTTP 404 and produce zero samples. The scrape config itself is
-  # still correct and harmless.
+  # Helm values). The optional N8N_METRICS_INCLUDE_* families the n8n
+  # Monitoring Pack dashboards read are also enabled there (see
+  # local.n8n_metrics_env in the tf-n8n root module).
   additionalServiceMonitors:
-    # Only n8n-main exposes /metrics. n8n only registers the Prometheus
-    # route on the default server process; the webhook-processor (running
-    # `n8n webhook`) and the worker (running `n8n worker`) do not mount
-    # /metrics even when N8N_METRICS=true is set on the pod. /metrics on
-    # those returns Express's default 404.
+    # All three n8n roles serve /metrics on 5678 (verified live on n8n
+    # 2.39.6: main, webhook-processor and worker all return 200). The n8n
+    # chart ships a Service for main and webhook-processor; the tf-n8n root
+    # module adds a matching `n8n-worker` Service so this one selector
+    # covers every role.
     #
-    # The n8n chart adds an app.kubernetes.io/component label to every
-    # Service *except* n8n-main, so we select n8n-main by requiring the
-    # component label to be absent.
-    - name: n8n-main
+    # Label contract the n8n Monitoring Pack dashboards depend on:
+    #   job="n8n"            one job across all roles ($job is single-select)
+    #   component=<role>     main | webhook-processor | worker
+    # The chart's n8n-main Service carries no component label (its pods
+    # do), so `component` is taken from the pod label, not the Service.
+    - name: n8n
       namespaceSelector:
         matchNames:
           - n8n
@@ -71,14 +73,16 @@ prometheus:
         matchLabels:
           app.kubernetes.io/name: n8n
           app.kubernetes.io/instance: n8n
-        matchExpressions:
-          - key: app.kubernetes.io/component
-            operator: DoesNotExist
       endpoints:
         - port: http
           path: /metrics
           interval: 30s
           scrapeTimeout: 10s
+          relabelings:
+            - targetLabel: job
+              replacement: n8n
+            - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+              targetLabel: component
 
     # KEDA underpins n8n's queue-mode worker autoscaling. Scrape the
     # operator-metrics-apiserver Service on its `metrics` (8080) port;
@@ -165,8 +169,8 @@ grafana:
   #
   # Loki ships with multi-tenancy on; our Loki values file uses tenant_id
   # "1", so the X-Scope-OrgID header is set here. The n8n-postgres
-  # datasource is consumed by the n8n-workflow-execution-analytics
-  # dashboard, which runs raw SQL (no exporter / no Prometheus scrape).
+  # datasource is for ad-hoc SQL in Explore; no shipped dashboard reads it
+  # since governance moved to Prometheus.
   additionalDataSources:
     - name: Loki
       type: loki
