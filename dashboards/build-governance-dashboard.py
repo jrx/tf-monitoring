@@ -207,13 +207,17 @@ def total(metric, window):
     before Prometheus saw the series: a counter born at 12 and flat since
     reports 0. Split the series set instead:
       * existed at window start  -> increase() over the window
-      * born inside the window   -> its current value (the events that created it)
-    The two sets are disjoint, so `or` unions them. A pod restart inside the
-    window lands the new pod's series in the second set, which is the right
-    answer too. Aggregate the result with sum()/sum by ()."""
+      * born inside the window   -> its last value in the window (the events
+                                    that created it)
+    The two sets are disjoint, so `or` unions them. Both left-hand sides are
+    range-vector functions, so a series that went stale inside the window
+    (pod scaled away, HPA churn) still counts as long as it has a sample in
+    the window; an instant selector there would drop it. A pod restart
+    inside the window lands the new pod's series in the second set, which is
+    the right answer too. Aggregate the result with sum()/sum by ()."""
     sel = f'{metric}{{{JOB}}}'
     return (f'((increase({sel}[{window}]) and {sel} offset {window}) '
-            f'or ({sel} unless {sel} offset {window}))')
+            f'or (last_over_time({sel}[{window}]) unless {sel} offset {window}))')
 
 
 HIST_COUNT = "n8n_workflow_execution_duration_seconds_count"
