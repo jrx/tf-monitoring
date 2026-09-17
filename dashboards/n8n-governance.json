@@ -403,8 +403,8 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Daily finished executions by mode (observed)",
-      "description": "From the execution-duration histogram: every finished execution, split by n8n mode. trigger / webhook / cli / retry / evaluation are the production-eligible modes; manual, integrated (sub-workflow), error (error workflow), chat and internal are not. No source label, so Instance AI runs cannot be separated. Trailing 24h windows, not calendar days; counters reset with the emitting main pod.",
+      "title": "Hourly finished executions by mode (observed)",
+      "description": "From the execution-duration histogram: every finished execution, split by n8n mode, one bar per hour. trigger / webhook / cli / retry / evaluation are the production-eligible modes; manual, integrated (sub-workflow), error (error workflow), chat and internal are not. No source label, so Instance AI runs cannot be separated. Hourly on purpose: a 1d step is evaluated at midnight UTC and hides the current day; calendar-day and business-timezone totals belong in a snapshot collector, not in PromQL. Counters reset with the emitting main pod.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -457,10 +457,10 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (mode) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1d]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d)))",
+          "expr": "sum by (mode) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1h]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1h) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1h)))",
           "refId": "A",
           "legendFormat": "{{mode}}",
-          "interval": "1d"
+          "interval": "1h"
         }
       ]
     },

@@ -292,16 +292,19 @@ panels.append(stat(
 
 # --- Row 2: observed volume in range (runtime counters) ----------------------
 panels.append(timeseries(
-    "Daily finished executions by mode (observed)",
-    [target(f'sum by (mode) ({total(HIST_COUNT, "1d")})',
-            legend="{{mode}}", interval="1d")],
+    "Hourly finished executions by mode (observed)",
+    [target(f'sum by (mode) ({total(HIST_COUNT, "1h")})',
+            legend="{{mode}}", interval="1h")],
     0, 8, 18, 8, stacking="normal",
     desc="From the execution-duration histogram: every finished execution, "
-         "split by n8n mode. trigger / webhook / cli / retry / evaluation are "
-         "the production-eligible modes; manual, integrated (sub-workflow), "
-         "error (error workflow), chat and internal are not. No source label, "
-         "so Instance AI runs cannot be separated. Trailing 24h windows, not "
-         "calendar days; counters reset with the emitting main pod.",
+         "split by n8n mode, one bar per hour. trigger / webhook / cli / retry "
+         "/ evaluation are the production-eligible modes; manual, integrated "
+         "(sub-workflow), error (error workflow), chat and internal are not. "
+         "No source label, so Instance AI runs cannot be separated. Hourly on "
+         "purpose: a 1d step is evaluated at midnight UTC and hides the "
+         "current day; calendar-day and business-timezone totals belong in a "
+         "snapshot collector, not in PromQL. Counters reset with the emitting "
+         "main pod.",
 ))
 panels.append(stat(
     "Finished executions in range (observed)",
