@@ -7,6 +7,90 @@ crds:
 defaultRules:
   create: true
 
+# n8n-specific alert rules. EDUCATIONAL ONLY: every rule carries
+# `educational: "true"` and the Alertmanager route below sends that label to
+# the `null` receiver, so they show up under Prometheus -> Alerts and in
+# Grafana's alert list but never notify anyone. They exist to make the
+# usage-tracking caveats visible (see the governance dashboard and the
+# README): scrape gaps, leader count, statistics discontinuities, replica
+# disagreement, DB pool pressure. Promote one by removing the label and
+# adding a real receiver.
+additionalPrometheusRulesMap:
+  n8n-educational:
+    groups:
+      - name: n8n.educational
+        rules:
+          - alert: N8nMetricsTargetDown
+            expr: up{job="n8n"} == 0
+            for: 5m
+            labels:
+              severity: info
+              educational: "true"
+            annotations:
+              summary: "n8n {{ $labels.component }} pod {{ $labels.pod }} not scraped for 5m"
+              description: >-
+                Prometheus cannot reach /metrics on this pod. Any usage figure
+                derived from counters on it has a gap for this period; a later
+                sample recovers the net change, not the per-day split.
+
+          - alert: N8nLeaderCountNotOne
+            expr: sum(n8n_instance_role_leader{job="n8n"}) != 1
+            for: 5m
+            labels:
+              severity: info
+              educational: "true"
+            annotations:
+              summary: "n8n multi-main leader count is {{ $value }} (must be exactly 1)"
+              description: >-
+                Leader-only metrics (n8n_workflow_info, n8n_active_workflow_info,
+                pruning) are missing with 0 leaders and duplicated with 2+.
+
+          - alert: N8nProductionStatisticsDecreased
+            expr: >-
+              max(n8n_production_root_executions{job="n8n"})
+                < max(n8n_production_root_executions{job="n8n"} offset 10m)
+            labels:
+              severity: info
+              educational: "true"
+            annotations:
+              summary: "n8n_production_root_executions went down"
+              description: >-
+                The lifetime statistics gauge is read from the database and
+                must never decrease. A drop means a restore, a clone, a reset
+                database or a pointed-elsewhere DB, not an ordinary pod
+                restart. Do not clamp it to zero in usage reports; record a
+                lineage boundary and investigate.
+
+          - alert: N8nStatisticsReplicasDisagree
+            expr: >-
+              max(n8n_production_root_executions{job="n8n"})
+                - min(n8n_production_root_executions{job="n8n"}) > 0
+            for: 15m
+            labels:
+              severity: info
+              educational: "true"
+            annotations:
+              summary: "n8n pods report different lifetime statistics for 15m"
+              description: >-
+                All pods read the same workflow_statistics table through a
+                shared 300s cache, so they should agree within one cache
+                interval. Persistent disagreement points at a pod on a stale
+                cache or a different database. Never sum() these gauges across
+                pods; take one value per logical instance.
+
+          - alert: N8nDbPoolRequestsPending
+            expr: max by (component) (n8n_db_pool_requests_pending{job="n8n"}) > 0
+            for: 5m
+            labels:
+              severity: info
+              educational: "true"
+            annotations:
+              summary: "n8n {{ $labels.component }} has requests waiting for a DB connection"
+              description: >-
+                n8n's own client-side pool is the ceiling (pool max is small
+                by default). The database and PgBouncer can look idle while
+                this is non-zero; see the Database & Pooling dashboard.
+
 prometheus:
   prometheusSpec:
     retention: 15d
@@ -121,6 +205,19 @@ prometheus:
           scrapeTimeout: 10s
 
 alertmanager:
+  # Route everything labelled educational="true" to the null receiver so the
+  # rules above never notify, even after a real receiver is added to the
+  # default route later. Helm replaces the `routes` list rather than merging
+  # it, so the chart's default Watchdog route is repeated here.
+  config:
+    route:
+      routes:
+        - receiver: "null"
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: "null"
+          matchers:
+            - educational = "true"
   alertmanagerSpec:
     # Persist silences + notification-dedup state across restarts.
     storage:

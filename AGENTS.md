@@ -222,14 +222,27 @@ ones.
 Metric semantics worth knowing before "fixing" a panel:
 
 - Execution duration histogram and `n8n_workflow_{started,success,failed}_total`
-  are emitted by the main that owns the execution, never by workers
-  (`hookFunctionsWorkflowEvents` is only registered in
-  `getLifecycleHooksForScalingMain`). `sum()` across `job="n8n"` does not
-  double count.
+  are emitted once per execution by the process that owns its lifecycle
+  hooks: main or webhook-processor for the executions they enqueue
+  (`getLifecycleHooksForScalingMain`), the worker for sub-workflows and
+  error workflows it runs in-process (`getLifecycleHooksForSubExecutions`).
+  Verified live: 939 webhook executions on `component=webhook-processor`,
+  134 `mode=error` on `component=worker`, nothing on main. `sum()` across
+  `job="n8n"` does not double count. Series are per pod and created lazily,
+  so a pod the HPA scales away takes its counts with it; `total()` in
+  `build-governance-dashboard.py` uses `last_over_time()` for that reason.
 - `n8n_scaling_mode_queue_jobs_*` come from every main reading the same
   Bull queue; aggregate with `max()`. Upstream calls this unreliable in
   multi-main; the Redis exporter's `redis_key_size{key="bull:jobs:*"}` is
   the authoritative queue depth.
+- `n8n_production_root_executions` / `_production_executions` /
+  `_manual_executions` are lifetime **gauges** read from the database
+  (300s shared cache), the only quota-grade numbers. Aggregate with `max()`;
+  a decrease is a restore/clone, not a restart. The runtime counters
+  (histogram, event-bus) are observed estimates; never present them as
+  billing figures. The n8n alert rules in `charts/kube-prometheus-stack.yaml`
+  are educational only (routed to `null`); don't "fix" them by adding a
+  receiver without being asked.
 - `n8n_execution_data_storage_mode` reports `db` here (tf-n8n keeps
   execution data in PostgreSQL). The upstream pack expects `s3`.
 - PgBouncer is not deployed; the pack's PgBouncer panels were replaced by a

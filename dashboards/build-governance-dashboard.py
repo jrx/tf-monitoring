@@ -25,19 +25,21 @@ Metric prerequisites (n8n 2.39.6 env names):
     (execution duration histogram is on by default)
 
 Semantics worth knowing:
-  * Event-bus counters and the duration histogram are emitted by the main
-    that owns the execution only (hookFunctionsWorkflowEvents is registered
-    in getLifecycleHooksForScalingMain, not on workers), so sum() over
-    job="$job" does not double count.
+  * Event-bus counters and the duration histogram are emitted once per
+    execution by the process that owns its lifecycle hooks (main or webhook
+    processor for what they enqueue, the worker for sub-workflows and error
+    workflows it runs in-process), so sum() over job="$job" does not double
+    count.
   * "In range" panels count increase() for series that existed at range
     start plus the current value of series born inside the range (see
     total()); plain increase() would drop the first burst after a series
     appears. They are only as complete as Prometheus retention; the 7d / 30d windows on the stale and
     zombie tables need at least that much retention.
-  * The lifetime gauges (n8n_production_executions etc.) come from the
-    license-metrics repository and survive pod restarts; use them for quota
-    against a licence, and the in-range counters for "this month" style
-    questions.
+  * The lifetime gauges (n8n_production_root_executions etc.) come from the
+    license-metrics repository, survive pod restarts and carry n8n's
+    production eligibility rule; they are the only quota-grade numbers here.
+    The runtime counters (histogram, event-bus) are observed estimates for
+    operational questions, never billing figures.
   * "Not edited" is derived from n8n_audit_workflow_updated_total, the
     event-bus counter for n8n.audit.workflow.updated. It fires whether or
     not a log-streaming destination exists.
@@ -206,17 +208,20 @@ def total(metric, window):
     before Prometheus saw the series: a counter born at 12 and flat since
     reports 0. Split the series set instead:
       * existed at window start  -> increase() over the window
-      * born inside the window   -> its current value (the events that created it)
-    The two sets are disjoint, so `or` unions them. A pod restart inside the
-    window lands the new pod's series in the second set, which is the right
-    answer too. Aggregate the result with sum()/sum by ()."""
+      * born inside the window   -> its last value in the window (the events
+                                    that created it)
+    The two sets are disjoint, so `or` unions them. Both left-hand sides are
+    range-vector functions, so a series that went stale inside the window
+    (pod scaled away, HPA churn) still counts as long as it has a sample in
+    the window; an instant selector there would drop it. A pod restart
+    inside the window lands the new pod's series in the second set, which is
+    the right answer too. Aggregate the result with sum()/sum by ()."""
     sel = f'{metric}{{{JOB}}}'
     return (f'((increase({sel}[{window}]) and {sel} offset {window}) '
-            f'or ({sel} unless {sel} offset {window}))')
+            f'or (last_over_time({sel}[{window}]) unless {sel} offset {window}))')
 
 
 HIST_COUNT = "n8n_workflow_execution_duration_seconds_count"
-EXEC_RANGE = f'sum({total(HIST_COUNT, "$__range")})'
 STARTED_RANGE = f'sum {BY_WF} ({total("n8n_workflow_started_total", "$__range")})'
 SUCCESS_RANGE = f'sum {BY_WF} ({total("n8n_workflow_success_total", "$__range")})'
 FAILED_RANGE = f'sum {BY_WF} ({total("n8n_workflow_failed_total", "$__range")})'
@@ -242,32 +247,45 @@ quota_thr = thresholds(("green", None), ("yellow", 70), ("orange", 90), ("red", 
 
 panels = []
 
-# --- Row 1: volume and quota ------------------------------------------------
+# --- Row 1: quota (lifetime statistics gauges) -------------------------------
+# These come from n8n's workflow_statistics table via the licence-metrics
+# query, are gauges, survive pod restarts, and are the only stock metrics that
+# carry n8n's root/production eligibility rule. Every pod reports the same
+# shared value (300s cache), hence max(), never sum().
+ROOT = f'max(n8n_production_root_executions{{{JOB}}})'
+PROD = f'max(n8n_production_executions{{{JOB}}})'
+MANUAL = f'max(n8n_manual_executions{{{JOB}}})'
+
 panels.append(stat(
-    "Executions in range",
-    [target(EXEC_RANGE, instant=True)],
+    "Production root executions (lifetime)",
+    [target(ROOT, instant=True)],
     0, 0, 6, 8,
-    desc="All executions (success + failed, every mode) finished in the selected "
-         "time range, from the execution-duration histogram count. Set the range "
-         "to the billing period you care about.",
+    desc="n8n_production_root_executions: the number n8n's own licence "
+         "reporting uses. Root executions only (no sub-workflows, no manual, no "
+         "error-workflow runs); success, error and crashed all count. Lifetime "
+         "since the database was created; a decrease means a restore or clone, "
+         "not a restart. Needs N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS; "
+         "refreshes every 300s.",
 ))
 panels.append(gauge(
-    "Quota consumed in range",
-    [target(f'{EXEC_RANGE} / $quota', instant=True)],
+    "Lifetime root executions vs quota",
+    [target(f'{ROOT} / $quota', instant=True)],
     6, 0, 6, 8,
     unit="percentunit", vmin=0, vmax=1,
     thr=thresholds(("green", None), ("yellow", 0.7), ("orange", 0.9), ("red", 1)),
-    desc="Executions in range as a share of $quota (editable textbox, top left). "
-         "Colours at 70 / 90 / 100 %.",
+    desc="Production root executions as a share of $quota (editable textbox). "
+         "Lifetime, not per period: to get usage for a contract period, "
+         "subtract a stored baseline outside Grafana. Colours at 70 / 90 / 100 %.",
 ))
 panels.append(stat(
-    "Production executions (lifetime)",
-    [target(f'max(n8n_production_executions{{{JOB}}})', instant=True)],
-    12, 0, 6, 8,
-    desc="Instance-lifetime production executions as counted by n8n's licence "
-         "metrics (the number a licence quota is checked against). Survives "
-         "pod restarts, unlike the counters behind the in-range panels. Needs "
-         "N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS.",
+    "Completed executions (lifetime)",
+    [target(ROOT, "A", legend="production root", instant=True),
+     target(PROD, "B", legend="production incl. sub-workflows", instant=True),
+     target(MANUAL, "C", legend="manual", instant=True)],
+    12, 0, 6, 8, text_mode="value_and_name",
+    desc="Three statistics totals side by side. production + manual is the "
+         "broadest completed-run total n8n keeps; it still excludes canceled, "
+         "unfinished and chat-mode runs. None of these is 'all executions'.",
 ))
 panels.append(stat(
     "Workflows: total / active",
@@ -277,21 +295,31 @@ panels.append(stat(
     desc="n8n_workflows (all, incl. inactive) next to n8n_active_workflow_count.",
 ))
 
-# --- Row 2: daily volume -----------------------------------------------------
+# --- Row 2: observed volume in range (runtime counters) ----------------------
 panels.append(timeseries(
-    "Daily execution volume by status",
-    [target(f'sum by (status) ({total(HIST_COUNT, "1d")})',
-            legend="{{status}}", interval="1d")],
-    0, 8, 24, 8, stacking="normal",
-    desc="Trailing 24h increase sampled once a day, stacked success / failed. "
-         "Close to, but not exactly, calendar-day totals. Set the range to the "
-         "current month for a quota burn-down view.",
-    overrides=[
-        {"matcher": {"id": "byName", "options": "success"},
-         "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
-        {"matcher": {"id": "byName", "options": "failed"},
-         "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
-    ],
+    "Hourly finished executions by mode (observed)",
+    [target(f'sum by (mode) ({total(HIST_COUNT, "1h")})',
+            legend="{{mode}}", interval="1h")],
+    0, 8, 18, 8, stacking="normal",
+    desc="From the execution-duration histogram: every finished execution, "
+         "split by n8n mode, one bar per hour. trigger / webhook / cli / retry "
+         "/ evaluation are the production-eligible modes; manual, integrated "
+         "(sub-workflow), error (error workflow), chat and internal are not. "
+         "No source label, so Instance AI runs cannot be separated. Hourly on "
+         "purpose: a 1d step is evaluated at midnight UTC and hides the "
+         "current day; calendar-day and business-timezone totals belong in a "
+         "snapshot collector, not in PromQL. Counters reset with the emitting "
+         "main pod.",
+))
+panels.append(stat(
+    "Finished executions in range (observed)",
+    [target(f'sum by (status) ({total(HIST_COUNT, "$__range")})', legend="{{status}}", instant=True)],
+    18, 8, 6, 8, text_mode="value_and_name",
+    desc="Same histogram over the dashboard range, split success / failed. "
+         "Operational estimate: counts what Prometheus observed, so a scrape "
+         "gap or retention shorter than the range under-reports. Not a billing "
+         "figure; use the lifetime gauges above for that.",
+    thr=thresholds(("green", None)),
 ))
 
 # --- Row 3: hotspots ---------------------------------------------------------
@@ -437,7 +465,8 @@ dashboard = {
     "tags": ["n8n", "portable"] if PORTABLE else ["n8n", "governance", "prometheus"],
     "editable": True,
     "graphTooltip": 1,
-    "timezone": "browser",
+    # Fixed business timezone so daily panels line up the same for everyone.
+    "timezone": "utc" if PORTABLE else "Europe/Berlin",
     "schemaVersion": 39 if PORTABLE else 42,
     "version": 1,
     "refresh": "5m",
