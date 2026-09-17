@@ -10,7 +10,7 @@
   ],
   "editable": true,
   "graphTooltip": 1,
-  "timezone": "browser",
+  "timezone": "Europe/Berlin",
   "schemaVersion": 42,
   "version": 1,
   "refresh": "5m",
@@ -130,8 +130,8 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Executions in range",
-      "description": "All executions (success + failed, every mode) finished in the selected time range, from the execution-duration histogram count. Set the range to the billing period you care about.",
+      "title": "Production root executions (lifetime)",
+      "description": "n8n_production_root_executions: the number n8n's own licence reporting uses. Root executions only (no sub-workflows, no manual, no error-workflow runs); success, error and crashed all count. Lifetime since the database was created; a decrease means a restore or clone, not a restart. Needs N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS; refreshes every 300s.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -176,7 +176,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range)))",
+          "expr": "max(n8n_production_root_executions{job=\"$job\"})",
           "refId": "A",
           "instant": true,
           "range": false
@@ -186,8 +186,8 @@
     {
       "id": 2,
       "type": "gauge",
-      "title": "Quota consumed in range",
-      "description": "Executions in range as a share of $quota (editable textbox, top left). Colours at 70 / 90 / 100 %.",
+      "title": "Lifetime root executions vs quota",
+      "description": "Production root executions as a share of $quota (editable textbox). Lifetime, not per period: to get usage for a contract period, subtract a stored baseline outside Grafana. Colours at 70 / 90 / 100 %.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -246,7 +246,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range))) / $quota",
+          "expr": "max(n8n_production_root_executions{job=\"$job\"}) / $quota",
           "refId": "A",
           "instant": true,
           "range": false
@@ -256,8 +256,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Production executions (lifetime)",
-      "description": "Instance-lifetime production executions as counted by n8n's licence metrics (the number a licence quota is checked against). Survives pod restarts, unlike the counters behind the in-range panels. Needs N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS.",
+      "title": "Completed executions (lifetime)",
+      "description": "Three statistics totals side by side. production + manual is the broadest completed-run total n8n keeps; it still excludes canceled, unfinished and chat-mode runs. None of these is 'all executions'.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -293,7 +293,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "colorMode": "value"
       },
       "targets": [
@@ -302,8 +302,31 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(n8n_production_executions{job=\"$job\"})",
+          "expr": "max(n8n_production_root_executions{job=\"$job\"})",
           "refId": "A",
+          "legendFormat": "production root",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(n8n_production_executions{job=\"$job\"})",
+          "refId": "B",
+          "legendFormat": "production incl. sub-workflows",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(n8n_manual_executions{job=\"$job\"})",
+          "refId": "C",
+          "legendFormat": "manual",
           "instant": true,
           "range": false
         }
@@ -380,8 +403,8 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Daily execution volume by status",
-      "description": "Trailing 24h increase sampled once a day, stacked success / failed. Close to, but not exactly, calendar-day totals. Set the range to the current month for a quota burn-down view.",
+      "title": "Daily finished executions by mode (observed)",
+      "description": "From the execution-duration histogram: every finished execution, split by n8n mode. trigger / webhook / cli / retry / evaluation are the production-eligible modes; manual, integrated (sub-workflow), error (error workflow), chat and internal are not. No source label, so Instance AI runs cannot be separated. Trailing 24h windows, not calendar days; counters reset with the emitting main pod.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -389,7 +412,7 @@
       "gridPos": {
         "x": 0,
         "y": 8,
-        "w": 24,
+        "w": 18,
         "h": 8
       },
       "fieldConfig": {
@@ -415,38 +438,7 @@
           },
           "unit": "short"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "success"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "failed"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "legend": {
@@ -465,15 +457,72 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1d]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d)))",
+          "expr": "sum by (mode) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[1d]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset 1d)))",
           "refId": "A",
-          "legendFormat": "{{status}}",
+          "legendFormat": "{{mode}}",
           "interval": "1d"
         }
       ]
     },
     {
       "id": 6,
+      "type": "stat",
+      "title": "Finished executions in range (observed)",
+      "description": "Same histogram over the dashboard range, split success / failed. Operational estimate: counts what Prometheus observed, so a scrape gap or retention shorter than the range under-reports. Not a billing figure; use the lifetime gauges above for that.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (status) (((increase(n8n_workflow_execution_duration_seconds_count{job=\"$job\"}[$__range]) and n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range) or (n8n_workflow_execution_duration_seconds_count{job=\"$job\"} unless n8n_workflow_execution_duration_seconds_count{job=\"$job\"} offset $__range)))",
+          "refId": "A",
+          "legendFormat": "{{status}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 7,
       "type": "table",
       "title": "Top 10 workflows by executions (range)",
       "description": "n8n_workflow_started_total by workflow over the range, with success ratio. Needs the workflow_id / workflow_name label flags. Hidden label \"ID\" disambiguates renamed workflows.",
@@ -628,7 +677,7 @@
       ]
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "table",
       "title": "Top 10 workflows by failures (range)",
       "description": "n8n_workflow_failed_total by workflow over the range, with failure ratio. Empty when nothing failed.",
@@ -783,7 +832,7 @@
       ]
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "table",
       "title": "Stale active workflows (no success in $stale_window)",
       "description": "Active workflows (n8n_active_workflow_info, leader main) with no observed n8n_workflow_success_total event in $stale_window, and how often they failed in that window. Either broken or never triggered. $stale_window must not exceed Prometheus retention or the table over-reports.",
@@ -903,7 +952,7 @@
       ]
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "table",
       "title": "Zombie workflows (running, not edited in $zombie_window)",
       "description": "Active workflows that executed in $stale_window but had no observed n8n.audit.workflow.updated event in $zombie_window (event-bus counter n8n_audit_workflow_updated_total). Still doing work, nobody is looking at them. $zombie_window must not exceed Prometheus retention; on an instance younger than the window every running workflow shows here.",
@@ -1023,7 +1072,7 @@
       ]
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "stat",
       "title": "Instance totals",
       "description": "Lifetime counts from n8n's licence metrics. Needs N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS.",

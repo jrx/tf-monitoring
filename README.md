@@ -226,6 +226,20 @@ kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093
 
 Open <http://localhost:9093>.
 
+### n8n alert rules (educational only)
+
+`charts/kube-prometheus-stack.yaml` adds five n8n rules under
+`additionalPrometheusRulesMap` (`N8nMetricsTargetDown`,
+`N8nLeaderCountNotOne`, `N8nProductionStatisticsDecreased`,
+`N8nStatisticsReplicasDisagree`, `N8nDbPoolRequestsPending`). They carry
+`educational: "true"` and an Alertmanager route sends that label to the
+`null` receiver, so they appear on the Prometheus and Grafana alert pages
+with an explanation in `description` but never notify anyone. They document
+the usage-tracking caveats (scrape gaps, statistics discontinuities, replica
+disagreement) rather than page on them. To make one real, drop the label and
+configure a receiver. Alertmanager itself still has only the `null`
+receiver.
+
 ## Grafana dashboards
 
 Dashboards under `./dashboards/*.json` are auto-imported into Grafana.
@@ -289,7 +303,7 @@ active mode). To pick up upstream changes: clone the repo, bump
 | `n8n-database.json` | n8n Monitoring Pack | Prometheus (postgres-exporter + n8n) | RDS transactions, connections by state, n8n pool utilisation / pending / acquire latency, cache hit ratio, deadlocks, dead tuples, insert rates. PgBouncer panels replaced by a note (not deployed). |
 | `n8n-execdata.json` | n8n Monitoring Pack | Prometheus | Execution data reads/writes by mode and result, write bytes, latency and payload-size p95, unreadable bundles. Storage mode panel shows the active mode (`db` here) instead of asserting S3. |
 | `n8n-saturation.json` | n8n Monitoring Pack | Prometheus (cAdvisor, kube-state-metrics, node-exporter) | Event-loop lag and heap by role, pod CPU / throttling / memory, OOMKills, restarts, replicas vs autoscaler, node CPU, pod age. |
-| `n8n-governance.json` | hand-built via `dashboards/build-governance-dashboard.py` | Prometheus | Governance & quota, pack style: executions in range against a `$quota` textbox, lifetime production executions, daily volume by status, top workflows by executions / failures, stale active workflows (no success in 7d), zombie workflows (running, no `n8n.audit.workflow.updated` in 30d), instance totals. Needs `N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS` plus the workflow-label flags; the 7d / 30d tables need matching retention. No SQL: the earlier Postgres version's project breakdown has no metric equivalent and was dropped. |
+| `n8n-governance.json` | hand-built via `dashboards/build-governance-dashboard.py` | Prometheus | Governance & quota, pack style. Row 1 is quota-grade: the lifetime statistics gauges (`n8n_production_root_executions` against a `$quota` textbox, production incl. sub-workflows, manual). Row 2 is observed operational volume from the duration histogram, split by n8n mode and clearly labelled as an estimate. Then top workflows by executions / failures, stale active workflows (no success in `$stale_window`), zombie workflows (running, no `n8n.audit.workflow.updated` in `$zombie_window`), instance totals. Needs `N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS` plus the workflow-label flags; the window tables need matching retention. Timezone fixed to `Europe/Berlin`. No SQL: the earlier Postgres version's project breakdown has no metric equivalent and was dropped. |
 | `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
 | `n8n-traces.json` | hand-built via `dashboards/build-traces-dashboard.py` | Prometheus | RED metrics (rate / errors / p50-p95-p99 duration) derived from n8n's OpenTelemetry spans by the Jaeger spanmetrics connector, scraped into Prometheus. Per-workflow breakdown + span-type split. Requires OpenTelemetry tracing enabled (see below); empty until then. For individual trace search use Explore → Jaeger. |
 

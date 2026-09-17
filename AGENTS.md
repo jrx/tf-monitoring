@@ -230,6 +230,14 @@ Metric semantics worth knowing before "fixing" a panel:
   Bull queue; aggregate with `max()`. Upstream calls this unreliable in
   multi-main; the Redis exporter's `redis_key_size{key="bull:jobs:*"}` is
   the authoritative queue depth.
+- `n8n_production_root_executions` / `_production_executions` /
+  `_manual_executions` are lifetime **gauges** read from the database
+  (300s shared cache), the only quota-grade numbers. Aggregate with `max()`;
+  a decrease is a restore/clone, not a restart. The runtime counters
+  (histogram, event-bus) are observed estimates; never present them as
+  billing figures. The n8n alert rules in `charts/kube-prometheus-stack.yaml`
+  are educational only (routed to `null`); don't "fix" them by adding a
+  receiver without being asked.
 - `n8n_execution_data_storage_mode` reports `db` here (tf-n8n keeps
   execution data in PostgreSQL). The upstream pack expects `s3`.
 - PgBouncer is not deployed; the pack's PgBouncer panels were replaced by a
