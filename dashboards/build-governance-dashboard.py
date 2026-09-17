@@ -25,10 +25,11 @@ Metric prerequisites (n8n 2.39.6 env names):
     (execution duration histogram is on by default)
 
 Semantics worth knowing:
-  * Event-bus counters and the duration histogram are emitted by the main
-    that owns the execution only (hookFunctionsWorkflowEvents is registered
-    in getLifecycleHooksForScalingMain, not on workers), so sum() over
-    job="$job" does not double count.
+  * Event-bus counters and the duration histogram are emitted once per
+    execution by the process that owns its lifecycle hooks (main or webhook
+    processor for what they enqueue, the worker for sub-workflows and error
+    workflows it runs in-process), so sum() over job="$job" does not double
+    count.
   * "In range" panels count increase() for series that existed at range
     start plus the current value of series born inside the range (see
     total()); plain increase() would drop the first burst after a series

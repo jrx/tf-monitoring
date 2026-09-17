@@ -222,10 +222,15 @@ ones.
 Metric semantics worth knowing before "fixing" a panel:
 
 - Execution duration histogram and `n8n_workflow_{started,success,failed}_total`
-  are emitted by the main that owns the execution, never by workers
-  (`hookFunctionsWorkflowEvents` is only registered in
-  `getLifecycleHooksForScalingMain`). `sum()` across `job="n8n"` does not
-  double count.
+  are emitted once per execution by the process that owns its lifecycle
+  hooks: main or webhook-processor for the executions they enqueue
+  (`getLifecycleHooksForScalingMain`), the worker for sub-workflows and
+  error workflows it runs in-process (`getLifecycleHooksForSubExecutions`).
+  Verified live: 939 webhook executions on `component=webhook-processor`,
+  134 `mode=error` on `component=worker`, nothing on main. `sum()` across
+  `job="n8n"` does not double count. Series are per pod and created lazily,
+  so a pod the HPA scales away takes its counts with it; `total()` in
+  `build-governance-dashboard.py` uses `last_over_time()` for that reason.
 - `n8n_scaling_mode_queue_jobs_*` come from every main reading the same
   Bull queue; aggregate with `max()`. Upstream calls this unreliable in
   multi-main; the Redis exporter's `redis_key_size{key="bull:jobs:*"}` is
