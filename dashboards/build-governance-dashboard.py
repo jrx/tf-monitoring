@@ -184,11 +184,14 @@ def pct_override(field, header):
 
 
 def heat_override(header, scheme="continuous-BlPu"):
+    """Count column. decimals 0: increase() extrapolates, so raw values read
+    like 7.0003 executions."""
     return {
         "matcher": {"id": "byName", "options": header},
         "properties": [
             {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}},
             {"id": "color", "value": {"mode": scheme}},
+            {"id": "decimals", "value": 0},
         ],
     }
 
@@ -387,7 +390,7 @@ panels.append(table(
          "n8n_audit_workflow_updated_total). Still doing work, nobody is "
          "looking at them. $zombie_window must not exceed Prometheus retention; "
          "on an instance younger than the window every running workflow "
-         "shows here.",
+         "shows here. Executions column = starts in $zombie_window.",
     columns={"workflow_name": "Workflow", "workflow_id": "ID", "Value #B": "Executions"},
     sort_by="Executions",
     overrides=[heat_override("Executions")],
@@ -427,8 +430,8 @@ templating.append({
 })
 templating.append({
     "type": "textbox", "name": "quota", "label": "Execution quota",
-    "description": "Executions allowed in the selected range; colours the quota gauge. "
-                   "Editable per session.",
+    "description": "Lifetime production root executions allowed (licence quota); "
+                   "the gauge shows usage against it. Editable per session.",
     "query": "600000", "hide": 0,
     "current": {"selected": True, "text": "600000", "value": "600000"},
     "options": [{"selected": True, "text": "600000", "value": "600000"}],

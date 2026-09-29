@@ -56,13 +56,14 @@ def row(title, y):
     }
 
 
-def stat(title, expr, x, y, w=6, h=4, *, unit="short", thresholds=None, description=""):
+def stat(title, expr, x, y, w=6, h=4, *, unit="short", thresholds=None, description="",
+         no_value=None):
     if thresholds is None:
         thresholds = {
             "mode": "absolute",
             "steps": [{"color": "blue", "value": None}],
         }
-    return {
+    panel = {
         "id": nid(),
         "type": "stat",
         "title": title,
@@ -96,10 +97,13 @@ def stat(title, expr, x, y, w=6, h=4, *, unit="short", thresholds=None, descript
             "textMode": "auto",
         },
     }
+    if no_value:
+        panel["fieldConfig"]["defaults"]["noValue"] = no_value
+    return panel
 
 
 def timeseries(title, expr, x, y, w, h, *, legend_format=None,
-               description="", unit="short"):
+               description="", unit="short", no_value=None):
     target = {
         "datasource": LOKI,
         "expr": expr,
@@ -107,7 +111,7 @@ def timeseries(title, expr, x, y, w, h, *, legend_format=None,
     }
     if legend_format:
         target["legendFormat"] = legend_format
-    return {
+    panel = {
         "id": nid(),
         "type": "timeseries",
         "title": title,
@@ -141,10 +145,13 @@ def timeseries(title, expr, x, y, w, h, *, legend_format=None,
             "tooltip": {"mode": "multi", "sort": "desc"},
         },
     }
+    if no_value:
+        panel["fieldConfig"]["defaults"]["noValue"] = no_value
+    return panel
 
 
 def table(title, expr, x, y, w, h, *, description="",
-          rename=None, sort_by=None, value_unit="short"):
+          rename=None, sort_by=None, value_unit="short", no_value=None):
     transformations = []
     if rename:
         # Rename auto-extracted column names ("Value", "payload_workflowName", ...)
@@ -211,6 +218,8 @@ def table(title, expr, x, y, w, h, *, description="",
         },
         "transformations": transformations,
     }
+    if no_value:
+        panel["fieldConfig"]["defaults"]["noValue"] = no_value
     return panel
 
 
@@ -248,6 +257,26 @@ WF_FILTER     = f'{SEL} | json | eventName=~`n8n\\.audit\\.workflow\\..*`'
 CRED_FILTER   = f'{SEL} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*`'
 VARPKG_FILTER = f'{SEL} | json | eventName=~`n8n\\.audit\\.(variable|package)\\..*`'
 EXEC_FILTER   = f'{SEL} | json | eventName=~`n8n\\.audit\\.execution\\..*`'
+MCP_FILTER    = f'{SEL} | json | eventName=~`n8n\\.audit\\.mcp\\..*`'
+ROLEMAP_FILTER = (f'{SEL} | json | eventName=~'
+                  '`n8n\\.audit\\.(role-mapping\\..*|credentials\\.authorize\\.rejected)`')
+
+# Actor label. n8n's `logStreaming.anonymizeAuditMessages` (N8N_LOG_STREAMING_
+# ANONYMIZE_AUDIT_MESSAGES) masks payload._email as "*", so fall back to
+# payload.userEmail, then payload.userId. Without the fallback every masked
+# event collapses into one "*" user.
+def user_label(fallback=""):
+    tail = (f'{{{{ else if .payload_userId }}}}{{{{ .payload_userId }}}}'
+            f'{{{{ else }}}}{fallback}{{{{ end }}}}') if fallback else \
+        '{{ else }}{{ .payload_userId }}{{ end }}'
+    return ('| label_format user=`{{ if and .payload__email (ne .payload__email "*") }}'
+            '{{ .payload__email }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}'
+            + tail + '`')
+
+USER = user_label()
+USER_NOTE = " User is the email, or userId when audit messages are anonymized."
+NO_REVEALS = ("No execution-data reveals in range (only emitted when a user reveals "
+              "data on a workflow with a redaction policy)")
 
 
 panels = []
@@ -268,16 +297,17 @@ panels.append(stat(
 ))
 panels.append(stat(
     "Distinct users",
-    f'count(sum by (payload_userId) (count_over_time({USER_FILTER} | payload_userId != `` [$__range])))',
+    f'count(sum by (payload_userId) (count_over_time({AUDIT_FILTER} | payload_userId != `` [$__range])))',
     x=12, y=1, w=6, h=4,
-    description="Unique userIds appearing in any n8n.audit.user.* event.",
+    description="Unique userIds appearing in any n8n.audit.* event.",
 ))
 panels.append(stat(
     "Failed login + email events",
     f'sum(count_over_time({SEL} | json '
     '| eventName=~`n8n\\.audit\\.user\\.(login|email)\\.failed` [$__range]))',
     x=18, y=1, w=6, h=4,
-    description="Auth and email-send failures. Spikes warrant investigation.",
+    description="Auth and email-send failures. Spikes warrant investigation. Shows ✅ None when no failed logins or email failures occurred in range.",
+    no_value="✅ None",
     thresholds={
         "mode": "absolute",
         "steps": [
@@ -324,39 +354,37 @@ panels.append(row("Identity & access", 22))
 panels.append(timeseries(
     "Auth & user lifecycle",
     f'sum by (eventName) (count_over_time({SEL} | json '
-    '| eventName=~`n8n\\.audit\\.user\\.(login|signedup|invited|deleted|reset)\\..*` [$__interval]))',
+    '| eventName=~`n8n\\.audit\\.user\\.(login|signedup|invited|deleted|reset)(\\..*)?` [$__interval]))',
     x=0, y=23, w=12, h=8,
     legend_format="{{eventName}}",
     description="login.success / login.failed / signedup / invited / deleted / reset.requested / reset.",
 ))
 panels.append(table(
     "Most active users (audit events)",
-    'topk(10, sum by (payload__email, payload_userId) '
-    f'(count_over_time({USER_FILTER} | payload__email != `` [$__range])))',
+    'topk(10, sum by (user) '
+    f'(count_over_time({USER_FILTER} {USER} | user != `` [$__range])))',
     x=12, y=23, w=12, h=8,
-    description="Top 10 users by audit-event count in the selected range.",
+    description="Top 10 users by n8n.audit.user.* event count in the selected range." + USER_NOTE,
     rename={
-        "payload__email": "Email",
-        "payload_userId": "User ID",
+        "user": "User",
         "Value": "Events",
     },
     sort_by="Events",
 ))
 
 # === Audit activity by user ===
-# Cross-tabulates audit events by actor (payload._email -> payload__email).
-# Filters payload__email != "" so only attributed events show; the rare
-# events without an email are surfaced via the "Recent audit events" log
-# panel which falls back to user:UUID or "(no user)".
+# Cross-tabulates audit events by actor (see user_label: email, or userId
+# when anonymized). Events with no actor at all are surfaced via the
+# "Recent audit events" log panel, which shows "(no user)".
 panels.append(row("Audit activity by user", 31))
 panels.append(table(
     "Top users by audit activity",
-    'topk(20, sum by (payload__email, eventName) '
-    f'(count_over_time({AUDIT_FILTER} | payload__email != `` [$__range])))',
+    'topk(20, sum by (user, eventName) '
+    f'(count_over_time({AUDIT_FILTER} {USER} | user != `` [$__range])))',
     x=0, y=32, w=12, h=8,
-    description="Top 20 (user, event-name) pairs across all n8n.audit.* events. Click a column header to re-sort.",
+    description="Top 20 (user, event-name) pairs across all n8n.audit.* events. Click a column header to re-sort." + USER_NOTE,
     rename={
-        "payload__email": "User",
+        "user": "User",
         "eventName": "Event",
         "Value": "Count",
     },
@@ -364,12 +392,12 @@ panels.append(table(
 ))
 panels.append(table(
     "Top users by credential / API / MFA action",
-    'topk(20, sum by (payload__email, eventName) '
-    f'(count_over_time({CRED_FILTER} | payload__email != `` [$__range])))',
+    'topk(20, sum by (user, eventName) '
+    f'(count_over_time({CRED_FILTER} {USER} | user != `` [$__range])))',
     x=12, y=32, w=12, h=8,
-    description="Same cross-tab restricted to credentials, API keys, and MFA events. Security-sensitive subset.",
+    description="Same cross-tab restricted to credentials, API keys, and MFA events. Security-sensitive subset." + USER_NOTE,
     rename={
-        "payload__email": "User",
+        "user": "User",
         "eventName": "Event",
         "Value": "Count",
     },
@@ -387,12 +415,12 @@ panels.append(timeseries(
 ))
 panels.append(table(
     "Most-touched workflows",
-    'topk(15, sum by (payload__email, payload_workflowName, eventName) '
-    f'(count_over_time({WF_FILTER} | payload_workflowName != `` [$__range])))',
+    'topk(15, sum by (user, payload_workflowName, eventName) '
+    f'(count_over_time({WF_FILTER} | payload_workflowName != `` {user_label("(trigger)")} [$__range])))',
     x=12, y=41, w=12, h=8,
-    description="Workflows with the most audit activity, attributed to the user who triggered each event.",
+    description="Workflows with the most audit activity, attributed to the user who triggered each event; (trigger) = run started by a trigger, no user." + USER_NOTE,
     rename={
-        "payload__email": "User",
+        "user": "User",
         "payload_workflowName": "Workflow",
         "eventName": "Event",
         "Value": "Count",
@@ -424,42 +452,79 @@ panels.append(timeseries(
     f"sum by (eventName) (count_over_time({EXEC_FILTER} [$__interval]))",
     x=0, y=59, w=12, h=8,
     legend_format="{{eventName}}",
-    description="When users reveal sensitive execution data in the editor.",
+    description="When users reveal redacted execution data in the editor (n8n.audit.execution.data.revealed / reveal_failure). Only emitted for workflows with an execution-data redaction policy.",
+    no_value=NO_REVEALS,
 ))
 panels.append(table(
     "Recent execution-data reveals",
-    'topk(20, sum by (payload__email, payload_userId, payload_executionId) '
-    f'(count_over_time({EXEC_FILTER} | payload_executionId != `` [$__range])))',
+    'topk(20, sum by (user, eventName, payload_executionId) '
+    f'(count_over_time({EXEC_FILTER} | payload_executionId != `` {user_label("(no user)")} [$__range])))',
     x=12, y=59, w=12, h=8,
-    description="Who revealed which execution payload in the selected range.",
+    description="Who revealed (or failed to reveal) which execution payload in the selected range." + USER_NOTE + " (no user) = event carried no email or userId.",
     rename={
-        "payload__email": "Email",
-        "payload_userId": "User ID",
+        "user": "User",
         "payload_executionId": "Execution ID",
         "Value": "Reveals",
+        "eventName": "Event",
     },
     sort_by="Reveals",
+    no_value=NO_REVEALS,
 ))
 
 # === Raw events ===
-panels.append(row("Raw audit stream", 67))
-panels.append(logs_panel(
+# Built before the MCP row so panel ids 26/27 stay stable for existing links;
+# the MCP row is listed (and laid out) above it.
+raw_row = row("Raw audit stream", 84)
+raw_logs = logs_panel(
     "Recent audit events",
     f'{SEL} | json '
     '| eventName=~`n8n\\.audit\\..*` '
-    # Actor first, then severity + eventName, then context fields.
-    # Falls back from email -> user:UUID -> "(no user)" so every line is
-    # attributable even for service-account-style events.
-    '| line_format "{{if .payload__email}}{{.payload__email}}'
-    '{{else if .payload_userId}}user:{{.payload_userId}}'
+    # Actor first (see user_label; "(no user)" when there is none), then
+    # severity + eventName, then context fields.
+    f'{USER} '
+    '| line_format "{{if .user}}{{.user}}'
     '{{else}}(no user){{end}}  [{{.severity}}] {{.eventName}}'
     '{{if .payload_workflowName}}  workflow=\\"{{.payload_workflowName}}\\"{{end}}'
     '{{if .payload_credentialName}}  credential=\\"{{.payload_credentialName}}\\"{{end}}'
     '{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}'
     '{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}"',
-    x=0, y=68, w=24, h=12,
-    description="Live tail of all n8n.audit.* events. Each line begins with the actor (email, user:UUID fallback, or '(no user)'), then severity and event name, then any contextual identifiers (workflow / credential / execution / instance role).",
+    x=0, y=85, w=24, h=12,
+    description="Live tail of all n8n.audit.* events. Each line begins with the actor (email, or userId when anonymized, or '(no user)'), then severity and event name, then any contextual identifiers (workflow / credential / execution / instance role).",
+)
+
+# === MCP & role mapping ===
+panels.append(row("MCP & role mapping", 67))
+panels.append(timeseries(
+    "MCP events",
+    f"sum by (eventName) (count_over_time({MCP_FILTER} [$__interval]))",
+    x=0, y=68, w=12, h=8,
+    legend_format="{{eventName}}",
+    description="mcp.tool.called / mcp.oauth.completed and other n8n.audit.mcp.* events.",
 ))
+panels.append(table(
+    "MCP tool calls by user & client",
+    'topk(20, sum by (user, payload_toolName, payload_clientName, payload_status) '
+    f'(count_over_time({SEL} | json | eventName=`n8n.audit.mcp.tool.called` {user_label("(no user)")} [$__range])))',
+    x=12, y=68, w=12, h=8,
+    description="Top 20 (user, tool, client, status) for n8n.audit.mcp.tool.called. User falls back to userId when emails are anonymized. (no user) = event carried no email or userId.",
+    rename={
+        "user": "User",
+        "payload_toolName": "Tool",
+        "payload_clientName": "Client",
+        "payload_status": "Status",
+        "Value": "Count",
+    },
+    sort_by="Count",
+))
+panels.append(timeseries(
+    "Role mapping & authorization rejections",
+    f"sum by (eventName) (count_over_time({ROLEMAP_FILTER} [$__interval]))",
+    x=0, y=76, w=24, h=8,
+    legend_format="{{eventName}}",
+    description="role-mapping.* (roles-resolved, rule.created/updated) and credentials.authorize.rejected.",
+))
+panels.append(raw_row)
+panels.append(raw_logs)
 
 
 templating = []

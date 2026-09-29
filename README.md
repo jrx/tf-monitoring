@@ -304,17 +304,20 @@ active mode). To pick up upstream changes: clone the repo, bump
 | `n8n-execdata.json` | n8n Monitoring Pack | Prometheus | Execution data reads/writes by mode and result, write bytes, latency and payload-size p95, unreadable bundles. Storage mode panel shows the active mode (`db` here) instead of asserting S3. |
 | `n8n-saturation.json` | n8n Monitoring Pack | Prometheus (cAdvisor, kube-state-metrics, node-exporter) | Event-loop lag and heap by role, pod CPU / throttling / memory, OOMKills, restarts, replicas vs autoscaler, node CPU, pod age. |
 | `n8n-governance.json` | hand-built via `dashboards/build-governance-dashboard.py` | Prometheus | Governance & quota, pack style. Row 1 is quota-grade: the lifetime statistics gauges (`n8n_production_root_executions` against a `$quota` textbox, production incl. sub-workflows, manual). Row 2 is observed operational volume from the duration histogram, split by n8n mode and clearly labelled as an estimate. Then top workflows by executions / failures, stale active workflows (no success in `$stale_window`), zombie workflows (running, no `n8n.audit.workflow.updated` in `$zombie_window`), instance totals. Needs `N8N_METRICS_INCLUDE_WORKFLOW_STATISTICS` plus the workflow-label flags; the window tables need matching retention. Timezone fixed to `Europe/Berlin`. No SQL: the earlier Postgres version's project breakdown has no metric equivalent and was dropped. |
-| `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
+| `n8n-audit-events.json` | hand-built via `dashboards/build-audit-dashboard.py` | Loki | n8n Enterprise Log-Streaming audit-event view: severity / facility breakdown, audit events over time, identity & access, per-user attribution (top users by audit activity / by credential action, plus a `User` column on most-touched workflows), workflow lifecycle, credentials/API/MFA, execution-data reveals, MCP tool calls and role mapping, raw event stream. Requires the syslog receiver (see below) and n8n Log Streaming configured to `alloy-syslog.monitoring.svc.cluster.local:1514`. |
 | `n8n-traces.json` | hand-built via `dashboards/build-traces-dashboard.py` | Prometheus | RED metrics (rate / errors / p50-p95-p99 duration) derived from n8n's OpenTelemetry spans by the Jaeger spanmetrics connector, scraped into Prometheus. Per-workflow breakdown + span-type split. Requires OpenTelemetry tracing enabled (see below); empty until then. For individual trace search use Explore → Jaeger. |
 
-> **Note on user attribution.** The per-user panels group by `payload__email`
-> — the `| json`-flattened form of the audit event's `payload._email` field.
-> For most events this is the **actor** (the user who performed the action),
-> but some `n8n.audit.user.*` events (e.g. `user.deleted`, `user.invited`)
-> may carry the **subject** user's email instead. Events with no
-> `payload._email` (some service-account / public-API flows) are excluded
-> from the "Top users by …" tables but still appear in the raw-stream panel,
-> tagged `(no user)`.
+> **Note on user attribution.** The per-user panels group by a derived
+> `user` label: `payload__email` (the `| json`-flattened `payload._email`),
+> or `payload_userEmail`, or `payload_userId` when the email is missing or
+> masked as `*` (n8n's `N8N_LOG_STREAMING_ANONYMIZE_AUDIT_MESSAGES`, which
+> would otherwise collapse every actor into one `*` row). For most events
+> this is the **actor** (the user who performed the action), but some
+> `n8n.audit.user.*` events (e.g. `user.deleted`, `user.invited`) may carry
+> the **subject** user instead. Events with no user at all are excluded from
+> the "Top users by …" tables, shown as `(trigger)` on "Most-touched
+> workflows", as `(no user)` on "Recent execution-data reveals" and "MCP tool
+> calls by user & client", and tagged `(no user)` in the raw-stream panel.
 
 ## n8n PostgreSQL datasource
 
@@ -399,8 +402,8 @@ datasource):
 # Cross-tab over the dashboard time range
 sum by (severity, facility) (count_over_time({source="n8n-log-streaming"}[$__range]))
 
-# Top users by audit activity (actor attribution; excludes events with no _email)
-topk(20, sum by (payload__email, eventName) (count_over_time({source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*` | payload__email != `` [$__range])))
+# Top users by audit activity (email, falling back to userId when anonymized)
+topk(20, sum by (user, eventName) (count_over_time({source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*` | label_format user=`{{ if and .payload__email (ne .payload__email "*") }}{{ .payload__email }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ else }}{{ .payload_userId }}{{ end }}` | user != `` [$__range])))
 ```
 
 **ConfigMap reload behaviour.** The Alloy chart's bundled
