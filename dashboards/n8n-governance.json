@@ -51,7 +51,7 @@
         "type": "textbox",
         "name": "quota",
         "label": "Execution quota",
-        "description": "Executions allowed in the selected range; colours the quota gauge. Editable per session.",
+        "description": "Lifetime production root executions allowed (licence quota); the gauge shows usage against it. Editable per session.",
         "query": "600000",
         "hide": 0,
         "current": {
@@ -575,6 +575,10 @@
                 "value": {
                   "mode": "continuous-BlPu"
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           },
@@ -730,6 +734,10 @@
                 "value": {
                   "mode": "continuous-YlRd"
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           },
@@ -885,6 +893,10 @@
                 "value": {
                   "mode": "continuous-YlRd"
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
@@ -955,7 +967,7 @@
       "id": 10,
       "type": "table",
       "title": "Zombie workflows (running, not edited in $zombie_window)",
-      "description": "Active workflows that executed in $stale_window but had no observed n8n.audit.workflow.updated event in $zombie_window (event-bus counter n8n_audit_workflow_updated_total). Still doing work, nobody is looking at them. $zombie_window must not exceed Prometheus retention; on an instance younger than the window every running workflow shows here.",
+      "description": "Active workflows that executed in $stale_window but had no observed n8n.audit.workflow.updated event in $zombie_window (event-bus counter n8n_audit_workflow_updated_total). Still doing work, nobody is looking at them. $zombie_window must not exceed Prometheus retention; on an instance younger than the window every running workflow shows here. Executions column = starts in $zombie_window.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1005,6 +1017,10 @@
                 "value": {
                   "mode": "continuous-BlPu"
                 }
+              },
+              {
+                "id": "decimals",
+                "value": 0
               }
             ]
           }
