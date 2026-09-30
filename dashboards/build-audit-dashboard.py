@@ -31,7 +31,7 @@ PORTABLE = "--portable" in sys.argv
 LOKI = {"type": "loki", "uid": "${loki}" if PORTABLE else "loki"}
 # Stream selector. Local: literal label the Alloy pipeline sets. Portable:
 # textbox variable so a different receiver can point the dashboard at its
-# own stream without editing 27 queries.
+# own stream without editing every query.
 SEL = "{${stream:raw}}" if PORTABLE else '{source="n8n-log-streaming"}'
 
 NEXT_ID = 0
@@ -261,16 +261,21 @@ MCP_FILTER    = f'{SEL} | json | eventName=~`n8n\\.audit\\.mcp\\..*`'
 ROLEMAP_FILTER = (f'{SEL} | json | eventName=~'
                   '`n8n\\.audit\\.(role-mapping\\..*|credentials\\.authorize\\.rejected)`')
 
-# Actor label. n8n's `logStreaming.anonymizeAuditMessages` (N8N_LOG_STREAMING_
-# ANONYMIZE_AUDIT_MESSAGES) masks payload._email as "*", so fall back to
-# payload.userEmail, then payload.userId. Without the fallback every masked
-# event collapses into one "*" user.
+# Actor label. A Log Streaming destination with "Anonymize audit messages"
+# (the per-destination `anonymizeAuditMessages` option; there is no env var)
+# masks every underscored payload key, so payload._email becomes "*" and
+# every actor would collapse into one "*" user. Fall back to payload.userId,
+# then payload.userEmail. userEmail is not underscored, so n8n never masks it
+# (only role-mapping.roles-resolved sends it, always next to userId); trying
+# userId first keeps raw emails out of the derived user label and the
+# formatted raw-stream line. The original field is still stored in Loki and
+# visible in the raw-stream panel's expanded log details.
 def user_label(fallback=""):
-    tail = (f'{{{{ else if .payload_userId }}}}{{{{ .payload_userId }}}}'
-            f'{{{{ else }}}}{fallback}{{{{ end }}}}') if fallback else \
-        '{{ else }}{{ .payload_userId }}{{ end }}'
+    last = '{{ else if .payload_userEmail }}{{ .payload_userEmail }}'
+    tail = (f'{last}{{{{ else }}}}{fallback}{{{{ end }}}}' if fallback
+            else f'{last}{{{{ end }}}}')
     return ('| label_format user=`{{ if and .payload__email (ne .payload__email "*") }}'
-            '{{ .payload__email }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}'
+            '{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}'
             + tail + '`')
 
 USER = user_label()
@@ -418,7 +423,7 @@ panels.append(table(
     'topk(15, sum by (user, payload_workflowName, eventName) '
     f'(count_over_time({WF_FILTER} | payload_workflowName != `` {user_label("(trigger)")} [$__range])))',
     x=12, y=41, w=12, h=8,
-    description="Workflows with the most audit activity, attributed to the user who triggered each event; (trigger) = run started by a trigger, no user." + USER_NOTE,
+    description="Workflows with the most audit activity, attributed to the user who triggered each event; (trigger) = event with no user, in practice a workflow.executed run started by a trigger." + USER_NOTE,
     rename={
         "user": "User",
         "payload_workflowName": "Workflow",
@@ -499,18 +504,20 @@ panels.append(timeseries(
     f"sum by (eventName) (count_over_time({MCP_FILTER} [$__interval]))",
     x=0, y=68, w=12, h=8,
     legend_format="{{eventName}}",
-    description="mcp.tool.called / mcp.oauth.completed and other n8n.audit.mcp.* events.",
+    description="mcp.tool.called / mcp.oauth.completed / mcp.access.updated and any other n8n.audit.mcp.* events.",
 ))
 panels.append(table(
     "MCP tool calls by user & client",
-    'topk(20, sum by (user, payload_toolName, payload_clientName, payload_status) '
+    'topk(20, sum by (user, payload_toolName, payload_clientName, payload_clientId, payload_authType, payload_status) '
     f'(count_over_time({SEL} | json | eventName=`n8n.audit.mcp.tool.called` {user_label("(no user)")} [$__range])))',
     x=12, y=68, w=12, h=8,
-    description="Top 20 (user, tool, client, status) for n8n.audit.mcp.tool.called. User falls back to userId when emails are anonymized. (no user) = event carried no email or userId.",
+    description="Top 20 (user, tool, client, auth, status) for n8n.audit.mcp.tool.called. Client name is self-reported by the MCP client; Client ID (the OAuth client registered with this instance, set for OAuth calls only) and Auth (oauth / api_key) identify it. User falls back to userId when emails are anonymized. (no user) = event carried no email or userId.",
     rename={
         "user": "User",
         "payload_toolName": "Tool",
         "payload_clientName": "Client",
+        "payload_clientId": "Client ID",
+        "payload_authType": "Auth",
         "payload_status": "Status",
         "Value": "Count",
     },
@@ -521,7 +528,7 @@ panels.append(timeseries(
     f"sum by (eventName) (count_over_time({ROLEMAP_FILTER} [$__interval]))",
     x=0, y=76, w=24, h=8,
     legend_format="{{eventName}}",
-    description="role-mapping.* (roles-resolved, rule.created/updated) and credentials.authorize.rejected.",
+    description="role-mapping.* (roles-resolved, rule.created / updated / deleted, rules.bulk-deleted) and credentials.authorize.rejected.",
 ))
 panels.append(raw_row)
 panels.append(raw_logs)
@@ -553,7 +560,7 @@ dashboard = {
         "Who did what: n8n Enterprise Log Streaming audit events (n8n.audit.*) "
         "read from Loki. Identity and access, per-user attribution, workflow "
         "lifecycle, credential / API key / MFA changes, execution-data reveals, "
-        "raw event stream. Needs a licence with Log Streaming, a syslog "
+        "MCP tool calls and role mapping, raw event stream. Needs a licence with Log Streaming, a syslog "
         "destination pointed at a Loki-shipping receiver, and the JSON event as "
         "the log line. Generated by dashboards/build-audit-dashboard.py."
     ),
