@@ -264,16 +264,15 @@ ROLEMAP_FILTER = (f'{SEL} | json | eventName=~'
 # Actor label. A Log Streaming destination with "Anonymize audit messages"
 # (the per-destination `anonymizeAuditMessages` option; there is no env var)
 # masks every underscored payload key, so payload._email becomes "*" and
-# every actor would collapse into one "*" user. Fall back to payload.userId,
-# then payload.userEmail. userEmail is not underscored, so n8n never masks it
-# (only role-mapping.roles-resolved sends it, always next to userId); trying
-# userId first keeps raw emails out of the derived user label and the
-# formatted raw-stream line. The original field is still stored in Loki and
-# visible in the raw-stream panel's expanded log details.
+# every actor would collapse into one "*" user. Fall back to payload.userId.
+# payload.userEmail is deliberately NOT used: it is not underscored, so n8n
+# never masks it. user.login.failed sends it with no userId, holding whatever
+# was typed into the login form (which can even be a mistyped password);
+# role-mapping.roles-resolved sends it next to userId, which already wins.
+# The raw field is still stored in Loki and visible in the raw-stream panel's
+# expanded log details.
 def user_label(fallback=""):
-    last = '{{ else if .payload_userEmail }}{{ .payload_userEmail }}'
-    tail = (f'{last}{{{{ else }}}}{fallback}{{{{ end }}}}' if fallback
-            else f'{last}{{{{ end }}}}')
+    tail = f'{{{{ else }}}}{fallback}{{{{ end }}}}' if fallback else '{{ end }}'
     return ('| label_format user=`{{ if and .payload__email (ne .payload__email "*") }}'
             '{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}'
             + tail + '`')

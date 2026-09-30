@@ -659,7 +659,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(10, sum by (user) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.user\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ end }}` | user != `` [$__range])))",
+          "expr": "topk(10, sum by (user) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.user\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ end }}` | user != `` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -782,7 +782,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(20, sum by (user, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ end }}` | user != `` [$__range])))",
+          "expr": "topk(20, sum by (user, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ end }}` | user != `` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -893,7 +893,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(20, sum by (user, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ end }}` | user != `` [$__range])))",
+          "expr": "topk(20, sum by (user, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.user\\.(credentials|api|mfa)\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ end }}` | user != `` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -1080,7 +1080,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(15, sum by (user, payload_workflowName, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` | payload_workflowName != `` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ else }}(trigger){{ end }}` [$__range])))",
+          "expr": "topk(15, sum by (user, payload_workflowName, eventName) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.workflow\\..*` | payload_workflowName != `` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else }}(trigger){{ end }}` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -1408,7 +1408,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(20, sum by (user, eventName, payload_executionId) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.execution\\..*` | payload_executionId != `` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ else }}(no user){{ end }}` [$__range])))",
+          "expr": "topk(20, sum by (user, eventName, payload_executionId) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\.execution\\..*` | payload_executionId != `` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else }}(no user){{ end }}` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -1597,7 +1597,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "topk(20, sum by (user, payload_toolName, payload_clientName, payload_clientId, payload_authType, payload_status) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=`n8n.audit.mcp.tool.called` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ else }}(no user){{ end }}` [$__range])))",
+          "expr": "topk(20, sum by (user, payload_toolName, payload_clientName, payload_clientId, payload_authType, payload_status) (count_over_time({source=\"n8n-log-streaming\"} | json | eventName=`n8n.audit.mcp.tool.called` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else }}(no user){{ end }}` [$__range])))",
           "queryType": "instant",
           "format": "table",
           "refId": "A"
@@ -1788,7 +1788,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ end }}` | line_format \"{{if .user}}{{.user}}{{else}}(no user){{end}}  [{{.severity}}] {{.eventName}}{{if .payload_workflowName}}  workflow=\\\"{{.payload_workflowName}}\\\"{{end}}{{if .payload_credentialName}}  credential=\\\"{{.payload_credentialName}}\\\"{{end}}{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}\"",
+          "expr": "{source=\"n8n-log-streaming\"} | json | eventName=~`n8n\\.audit\\..*` | label_format user=`{{ if and .payload__email (ne .payload__email \"*\") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ end }}` | line_format \"{{if .user}}{{.user}}{{else}}(no user){{end}}  [{{.severity}}] {{.eventName}}{{if .payload_workflowName}}  workflow=\\\"{{.payload_workflowName}}\\\"{{end}}{{if .payload_credentialName}}  credential=\\\"{{.payload_credentialName}}\\\"{{end}}{{if .payload_executionId}}  exec={{.payload_executionId}}{{end}}{{if .payload_instanceType}}  instance={{.payload_instanceType}}/{{.payload_instanceRole}}{{end}}\"",
           "refId": "A",
           "queryType": "range"
         }

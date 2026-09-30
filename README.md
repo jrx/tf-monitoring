@@ -309,18 +309,18 @@ active mode). To pick up upstream changes: clone the repo, bump
 
 > **Note on user attribution.** The per-user panels group by a derived
 > `user` label: `payload__email` (the `| json`-flattened `payload._email`),
-> or `payload_userId`, or `payload_userEmail` when the email is missing or
-> masked as `*`. n8n masks it when the Log Streaming destination has
-> *Anonymize audit messages* turned on (the per-destination
-> `anonymizeAuditMessages` option; there is no environment variable), which
-> would otherwise collapse every actor into one `*` row. n8n only masks
-> underscored payload keys, so `payload.userEmail` (sent by
-> `role-mapping.roles-resolved`) is never masked. The label tries `userId`
-> first, so the derived `user` label and the formatted raw-stream line show
-> no raw emails on an anonymized setup. The original field is still stored
-> in Loki and appears in the raw-stream panel's expanded log details. The
-> cost is that with anonymization off, `roles-resolved` rows show a userId
-> instead of the email. For most events
+> or `payload_userId` when the email is missing or masked as `*`. n8n masks
+> it when the Log Streaming destination has *Anonymize audit messages*
+> turned on (the per-destination `anonymizeAuditMessages` option; there is
+> no environment variable), which would otherwise collapse every actor into
+> one `*` row. `payload.userEmail` is deliberately not used. n8n only masks
+> underscored payload keys, so it is never masked, and on
+> `user.login.failed` it holds whatever was typed into the login form, with
+> no `userId`. Failed logins therefore count as events with no user: they
+> still show in "Failed login + email events" and "Auth & user lifecycle",
+> and the typed value stays in Loki and in the raw-stream panel's expanded
+> log details. `role-mapping.roles-resolved` also sends `userEmail`, but next
+> to `userId`, so it is attributed by userId. For most events
 > this is the **actor** (the user who performed the action), but some
 > `n8n.audit.user.*` events (e.g. `user.deleted`, `user.invited`) may carry
 > the **subject** user instead. Events with no user at all are excluded from
@@ -412,7 +412,7 @@ datasource):
 sum by (severity, facility) (count_over_time({source="n8n-log-streaming"}[$__range]))
 
 # Top users by audit activity (email, falling back to userId when anonymized)
-topk(20, sum by (user, eventName) (count_over_time({source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*` | label_format user=`{{ if and .payload__email (ne .payload__email "*") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ else if .payload_userEmail }}{{ .payload_userEmail }}{{ end }}` | user != `` [$__range])))
+topk(20, sum by (user, eventName) (count_over_time({source="n8n-log-streaming"} | json | eventName=~`n8n\.audit\..*` | label_format user=`{{ if and .payload__email (ne .payload__email "*") }}{{ .payload__email }}{{ else if .payload_userId }}{{ .payload_userId }}{{ end }}` | user != `` [$__range])))
 ```
 
 **ConfigMap reload behaviour.** The Alloy chart's bundled
